@@ -1,0 +1,3 @@
+[submodule "extsrc/boost"]
+	path = extsrc/boost
+	url = https://github.com/boostorg/boost.git
