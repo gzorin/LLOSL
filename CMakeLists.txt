@@ -24,7 +24,8 @@ ExternalProject_Add(boost
   BUILD_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/b2 -d0
   --build-dir=${PROJECT_BINARY_DIR}/extsrc/boost --prefix=${LLOSL_DEPS_DIR}
   --with-system --with-filesystem --with-regex --with-thread --with-wave --with-date_time
-  variant=release link=static install
+  --no-cmake-config
+  variant=release link=static cxxstd=14 install
   BUILD_IN_SOURCE 1
   INSTALL_COMMAND ""
 )
@@ -37,12 +38,8 @@ ExternalProject_Add(oiio
   LIST_SEPARATOR ^^
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX=${LLOSL_DEPS_DIR}
-  -DCMAKE_MODULE_PATH:LIST=${CMAKE_MODULE_PATH_FOR_EXTERNAL}
   -DBUILDSTATIC=ON -DOIIO_BUILD_TESTS=OFF
-  -DBOOST_CUSTOM=TRUE
-  -DBoost_NO_SYSTEM_PATHS=TRUE
-  -DBoost_VERSION=107000 -DBoost_INCLUDE_DIRS=${LLOSL_DEPS_DIR}/include -DBoost_LIBRARY_DIRS=${LLOSL_DEPS_DIR}/lib
-  -DBoost_LIBRARIES=boost_filesystem^^boost_thread^^boost_system)
+  -DBOOST_INCLUDEDIR:PATH=${LLOSL_DEPS_DIR}/include -DBOOST_LIBRARYDIR:PATH=${LLOSL_DEPS_DIR}/lib -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
 
 # OSL
 ExternalProject_Add(osl
@@ -57,6 +54,4 @@ ExternalProject_Add(osl
   -DBUILDSTATIC=ON -DOSL_BUILD_TESTS=OFF -DOSL_BUILD_PROGRAMS=OFF -DOSL_BUILD_PLUGINS=OFF
   -DOSL_NO_DEFAULT_TEXTURESYSTEM=OFF -DUSE_BOOST_WAVE=ON -DUSE_LLVM_BITCODE=OFF -DENABLERTTI=TRUE
   -DUSE_PARTIO=OFF
-  -DBOOST_CUSTOM=TRUE
-  -DBoost_NO_SYSTEM_PATHS=TRUE
-  -DBoost_VERSION=107000 -DBoost_INCLUDE_DIRS=${LLOSL_DEPS_DIR}/include -DBoost_LIBRARY_DIRS=${LLOSL_DEPS_DIR}/lib)
+  -DBOOST_INCLUDEDIR:PATH=${LLOSL_DEPS_DIR}/include -DBOOST_LIBRARYDIR:PATH=${LLOSL_DEPS_DIR}/lib -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
