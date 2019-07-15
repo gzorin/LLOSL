@@ -4,3 +4,6 @@
 [submodule "extsrc/oiio"]
 	path = extsrc/oiio
 	url = https://github.com/OpenImageIO/oiio.git
+[submodule "extsrc/OpenShadingLanguage"]
+	path = extsrc/OpenShadingLanguage
+	url = ssh://loggianero.com/home/abetts/git/OpenShadingLanguage
