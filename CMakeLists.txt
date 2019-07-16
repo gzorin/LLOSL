@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.14)
 project(LLOSL)
 
+option(LLOSL_SUPERBUILD "LLOSL superbuild" ON)
+
 set(LLOSL_DEPS_DIR
   ${PROJECT_BINARY_DIR}/deps)
 
@@ -8,50 +10,11 @@ list(APPEND CMAKE_MODULE_PATH
   ${LLOSL_DEPS_DIR}/lib/cmake/Boost-1.70.0
   ${LLOSL_DEPS_DIR}/share/cmake/Modules)
 
-string(REPLACE ";" "^^" CMAKE_MODULE_PATH_FOR_EXTERNAL "${CMAKE_MODULE_PATH}")
-message(STATUS "CMAKE_MODULE_PATH_FOR_EXTERNAL: ${CMAKE_MODULE_PATH_FOR_EXTERNAL}")
-
-include(ExternalProject)
-
 # LLVM
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-# Boost
-ExternalProject_Add(boost
-  SOURCE_DIR ${PROJECT_SOURCE_DIR}/extsrc/boost
-  CONFIGURE_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/bootstrap.sh
-  BUILD_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/b2 -d0
-  --build-dir=${PROJECT_BINARY_DIR}/extsrc/boost --prefix=${LLOSL_DEPS_DIR}
-  --with-system --with-filesystem --with-regex --with-thread --with-wave --with-date_time
-  --no-cmake-config
-  variant=release link=static cxxstd=14 install
-  BUILD_IN_SOURCE 1
-  INSTALL_COMMAND ""
-)
-
-# OpenImageIO
-ExternalProject_Add(oiio
-  SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/oiio"
-  BINARY_DIR "${PROJECT_BINARY_DIR}/extsrc/oiio"
-  DEPENDS boost
-  LIST_SEPARATOR ^^
-  CMAKE_ARGS
-  -DCMAKE_INSTALL_PREFIX=${LLOSL_DEPS_DIR}
-  -DBUILDSTATIC=ON -DOIIO_BUILD_TESTS=OFF
-  -DBOOST_INCLUDEDIR:PATH=${LLOSL_DEPS_DIR}/include -DBOOST_LIBRARYDIR:PATH=${LLOSL_DEPS_DIR}/lib -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
-
-# OSL
-ExternalProject_Add(osl
-  SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/OpenShadingLanguage"
-  BINARY_DIR "${CMAKE_BINARY_DIR}/extsrc/OpenShadingLanguage"
-  DEPENDS oiio boost
-  LIST_SEPARATOR ^^
-  CMAKE_ARGS
-  -DCMAKE_INSTALL_PREFIX=${LLOSL_DEPS_DIR}
-  -DCMAKE_MODULE_PATH:LIST=${CMAKE_MODULE_PATH_FOR_EXTERNAL}
-  -DLLVM_DIR=${LLVM_DIR} -DLLVM_STATIC=ON
-  -DBUILDSTATIC=ON -DOSL_BUILD_TESTS=OFF -DOSL_BUILD_PROGRAMS=OFF -DOSL_BUILD_PLUGINS=OFF
-  -DOSL_NO_DEFAULT_TEXTURESYSTEM=OFF -DUSE_BOOST_WAVE=ON -DUSE_LLVM_BITCODE=OFF -DENABLERTTI=TRUE
-  -DUSE_PARTIO=OFF
-  -DBOOST_INCLUDEDIR:PATH=${LLOSL_DEPS_DIR}/include -DBOOST_LIBRARYDIR:PATH=${LLOSL_DEPS_DIR}/lib -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
+if (LLOSL_SUPERBUILD)
+  include(${PROJECT_SOURCE_DIR}/CMakeListsSuper.cmake)
+  return()
+endif()
