@@ -3,49 +3,69 @@
 include(ExternalProject)
 
 # Boost
-ExternalProject_Add(boost
-  SOURCE_DIR ${PROJECT_SOURCE_DIR}/extsrc/boost
-  CONFIGURE_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/bootstrap.sh
-  BUILD_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/b2 -d0
-  --build-dir=${PROJECT_BINARY_DIR}/extsrc/boost --prefix=${LLOSL_DEPS_DIR}
-  --with-system --with-filesystem --with-regex --with-thread --with-wave --with-date_time
-  --no-cmake-config
-  variant=release link=static cxxstd=14 install
-  BUILD_IN_SOURCE 1
-  INSTALL_COMMAND ""
-)
+option(LLOSL_BUILD_BOOST "Build Boost" ON)
+
+if (LLOSL_BUILD_BOOST)
+  ExternalProject_Add(boost
+    SOURCE_DIR ${PROJECT_SOURCE_DIR}/extsrc/boost
+    CONFIGURE_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/bootstrap.sh
+    BUILD_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/b2 -d0
+    --build-dir=${PROJECT_BINARY_DIR}/extsrc/boost --prefix=${LLOSL_DEPS_DIR}
+    --with-system --with-filesystem --with-regex --with-thread --with-wave --with-date_time
+    --no-cmake-config
+    variant=release link=static cxxstd=14 install
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND "")
+  set(BOOST_TARGET boost)
+  set(Boost_INCLUDE_DIRS "${LLOSL_DEPS_DIR}/include")
+  set(Boost_LIBRARY_DIRS "${LLOSL_DEPS_DIR}/lib")
+else()
+  set(BOOST_TARGET)
+  find_package(Boost 1.70.0 REQUIRED)
+endif()
 
 # OpenImageIO
-ExternalProject_Add(oiio
-  SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/oiio"
-  BINARY_DIR "${PROJECT_BINARY_DIR}/extsrc/oiio"
-  DEPENDS boost
-  LIST_SEPARATOR ^^
-  CMAKE_ARGS
-  -DCMAKE_INSTALL_PREFIX=${LLOSL_DEPS_DIR}
-  -DBUILDSTATIC=ON -DOIIO_BUILD_TESTS=OFF
-  -DBOOST_INCLUDEDIR:PATH=${LLOSL_DEPS_DIR}/include -DBOOST_LIBRARYDIR:PATH=${LLOSL_DEPS_DIR}/lib -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
+option(LLOSL_BUILD_OPENIMAGEIO "Build OpenImageIO" ON)
+
+if(LLOSL_BUILD_OPENIMAGEIO)
+  ExternalProject_Add(oiio
+    SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/oiio"
+    BINARY_DIR "${PROJECT_BINARY_DIR}/extsrc/oiio"
+    DEPENDS boost
+    LIST_SEPARATOR ^^
+    CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX=${LLOSL_DEPS_DIR}
+    -DBUILDSTATIC=ON -DOIIO_BUILD_TESTS=OFF
+    -DBOOST_INCLUDEDIR:PATH=${Boost_INCLUDE_DIRS} -DBOOST_LIBRARYDIR:PATH=${Boost_LIBRARY_DIRS} -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
+  set(OPENIMAGEIO_TARGET oiio)
+  list(APPEND CMAKE_MODULE_PATH ${LLOSL_DEPS_DIR}/share/cmake/Modules)
+  set(OPENIMAGEIO_ROOT_DIR ${LLOSL_DEPS_DIR})
+  set(OPENIMAGEIO_LIBRARY_DIRS ${LLOSL_DEPS_DIR}/lib)
+else()
+  set(OPENIMAGEIO_TARGET)
+  find_package(OpenImageIO 1.8.5 REQUIRED)
+endif()
 
 # OSL
 ExternalProject_Add(osl
   SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/OpenShadingLanguage"
   BINARY_DIR "${CMAKE_BINARY_DIR}/extsrc/OpenShadingLanguage"
-  DEPENDS oiio boost
-  LIST_SEPARATOR ^^
+  DEPENDS ${OPENIMAGEIO_TARGET} ${BOOST_TARGET}
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX=${LLOSL_DEPS_DIR}
-  -DCMAKE_MODULE_PATH:LIST=${CMAKE_MODULE_PATH_FOR_EXTERNAL}
+  -DCMAKE_MODULE_PATH:LIST=${CMAKE_MODULE_PATH}
   -DLLVM_DIR=${LLVM_DIR} -DLLVM_STATIC=ON
   -DBUILDSTATIC=ON -DOSL_BUILD_TESTS=OFF -DOSL_BUILD_PROGRAMS=OFF -DOSL_BUILD_PLUGINS=OFF
   -DOSL_NO_DEFAULT_TEXTURESYSTEM=OFF -DUSE_BOOST_WAVE=ON -DUSE_LLVM_BITCODE=OFF -DENABLERTTI=TRUE
   -DUSE_PARTIO=OFF
-  -DBOOST_INCLUDEDIR:PATH=${LLOSL_DEPS_DIR}/include -DBOOST_LIBRARYDIR:PATH=${LLOSL_DEPS_DIR}/lib -DBoost_NO_SYSTEM_PATHS:BOOL=ON)
+  -DBOOST_INCLUDEDIR:PATH=${Boost_INCLUDE_DIRS} -DBOOST_LIBRARYDIR:PATH=${Boost_LIBRARY_DIRS} -DBoost_NO_SYSTEM_PATHS:BOOL=ON
+  -DOPENIMAGEIO_ROOT_DIR:PATH=${OPENIMAGEIO_ROOT_DIR} -DOPENIMAGEIO_LIBRARY_DIRS:PATH=${OPENIMAGEIO_LIBRARY_DIRS})
 
 # LLOSL
 ExternalProject_Add(llosl
   SOURCE_DIR "${PROJECT_SOURCE_DIR}"
   BINARY_DIR "${PROJECT_BINARY_DIR}"
-  DEPENDS oiio boost osl
+  DEPENDS ${OPENIMAGEIO_TARGET} ${BOOST_TARGET} osl
   INSTALL_COMMAND ""
   CMAKE_ARGS
   -DLLOSL_SUPERBUILD:BOOL=OFF)
