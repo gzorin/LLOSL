@@ -16,7 +16,7 @@ target_include_directories(LLOSL
   ${PROJECT_SOURCE_DIR}/include
   ${LLOSL_DEPS_DIR}/include)
 
-llvm_map_components_to_libnames(LLVM_LIBRARIES all)
+llvm_map_components_to_libnames(LLVM_LIBRARIES core support bitreader bitwriter mcjit)
 
 target_link_libraries(LLOSL
   ${LLVM_LIBRARIES}
