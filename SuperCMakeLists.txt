@@ -1,3 +1,5 @@
+# --*-- CMAKE --*--
+
 include(ExternalProject)
 
 # Boost

@@ -10,7 +10,7 @@ list(APPEND CMAKE_MODULE_PATH
   ${LLOSL_DEPS_DIR}/share/cmake/Modules)
 
 if (LLOSL_SUPERBUILD)
-  include(${PROJECT_SOURCE_DIR}/CMakeListsSuper.cmake)
+  include(${PROJECT_SOURCE_DIR}/SuperCMakeLists.txt)
   return()
 endif()
 
