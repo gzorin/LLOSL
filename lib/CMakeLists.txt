@@ -16,8 +16,16 @@ target_include_directories(LLOSL
   ${PROJECT_SOURCE_DIR}/include
   ${LLOSL_DEPS_DIR}/include)
 
+llvm_map_components_to_libnames(LLVM_LIBRARIES all)
+
+target_link_libraries(LLOSL
+  ${LLVM_LIBRARIES}
+  ${OpenShadingLanguage_LIBRARIES} ${OPENIMAGEIO_LIBRARIES}
+  ${OPENEXR_LIBRARIES} ${TIFF_LIBRARIES} ${PNG_LIBRARIES} ${JPEG_LIBRARIES}
+  ${Boost_LIBRARIES})
+
 install(
-  TARGETS LLOSL EXPORT LLOSL
+  TARGETS LLOSL
+  EXPORT LLOSLTargets
   ARCHIVE
-  DESTINATION lib
-)
+  DESTINATION lib)

@@ -7,10 +7,10 @@ option(LLOSL_BUILD_BOOST "Build Boost" ON)
 
 if (LLOSL_BUILD_BOOST)
   ExternalProject_Add(boost
-    SOURCE_DIR ${PROJECT_SOURCE_DIR}/extsrc/boost
-    CONFIGURE_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/bootstrap.sh
-    BUILD_COMMAND ${PROJECT_SOURCE_DIR}/extsrc/boost/b2 -d0
-    --build-dir=${PROJECT_BINARY_DIR}/extsrc/boost --prefix=${LLOSL_DEPS_DIR}
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/extsrc/boost
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/extsrc/boost/bootstrap.sh
+    BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/extsrc/boost/b2 -d0
+    --build-dir=${CMAKE_CURRENT_BINARY_DIR}/extsrc/boost --prefix=${LLOSL_DEPS_DIR}
     --with-system --with-filesystem --with-regex --with-thread --with-wave --with-date_time
     --no-cmake-config
     variant=release link=static cxxstd=14 install
@@ -29,8 +29,8 @@ option(LLOSL_BUILD_OPENIMAGEIO "Build OpenImageIO" ON)
 
 if(LLOSL_BUILD_OPENIMAGEIO)
   ExternalProject_Add(oiio
-    SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/oiio"
-    BINARY_DIR "${PROJECT_BINARY_DIR}/extsrc/oiio"
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extsrc/oiio"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/extsrc/oiio"
     DEPENDS boost
     LIST_SEPARATOR ^^
     CMAKE_ARGS
@@ -48,7 +48,7 @@ endif()
 
 # OSL
 ExternalProject_Add(osl
-  SOURCE_DIR "${PROJECT_SOURCE_DIR}/extsrc/OpenShadingLanguage"
+  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extsrc/OpenShadingLanguage"
   BINARY_DIR "${CMAKE_BINARY_DIR}/extsrc/OpenShadingLanguage"
   DEPENDS ${OPENIMAGEIO_TARGET} ${BOOST_TARGET}
   CMAKE_ARGS
@@ -63,9 +63,11 @@ ExternalProject_Add(osl
 
 # LLOSL
 ExternalProject_Add(llosl
-  SOURCE_DIR "${PROJECT_SOURCE_DIR}"
-  BINARY_DIR "${PROJECT_BINARY_DIR}"
+  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+  BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS ${OPENIMAGEIO_TARGET} ${BOOST_TARGET} osl
+  LIST_SEPARATOR ^^
   INSTALL_COMMAND ""
   CMAKE_ARGS
-  -DLLOSL_SUPERBUILD:BOOL=OFF)
+  -DLLOSL_SUPERBUILD:BOOL=OFF
+  -DCMAKE_MODULE_PATH:LIST=${CMAKE_MODULE_PATH}^^${CMAKE_CURRENT_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/cmake/modules)
