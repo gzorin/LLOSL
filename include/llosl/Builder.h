@@ -2,6 +2,8 @@
 #ifndef LLOSL_BUILDER_H
 #define LLOSL_BUILDER_H
 
+#include <llvm/ADT/StringRef.h>
+
 namespace llosl {
 
 class LLOSLContextImpl;
@@ -13,6 +15,9 @@ public:
   Builder(const Builder&) = delete;
   Builder(Builder&&);
   ~Builder();
+
+  void BeginShaderGroup(llvm::StringRef, llvm::StringRef);
+  void EndShaderGroup();
 
 private:
 

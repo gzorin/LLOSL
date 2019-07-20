@@ -30,6 +30,9 @@ public:
   const llvm::LLVMContext&         getLLContext() const { return d_llcontext; }
   llvm::LLVMContext&               getLLContext()       { return d_llcontext; }
 
+  const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
+  OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
+
   llvm::ErrorOr<Builder>           getBuilder();
   void                             resetBuilder(Builder *);
 

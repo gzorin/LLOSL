@@ -1,8 +1,13 @@
+#include "LLOSLContextImpl.h"
+#include "Util.h"
+
 #include <llosl/Builder.h>
 
-#include "LLOSLContextImpl.h"
+#include <OSL/oslexec.h>
 
 #include <utility>
+
+using namespace LLOSLUtil;
 
 namespace llosl {
 
@@ -29,6 +34,24 @@ Builder::reset() {
   }
 
   return context;
+}
+
+void
+Builder::BeginShaderGroup(llvm::StringRef name, llvm::StringRef usage) {
+  if (!d_context) {
+      return;
+  }
+
+  d_context->getShadingSystem().ShaderGroupBegin(ConvertStringRef(name), ConvertStringRef(usage));
+}
+
+void
+Builder::EndShaderGroup() {
+  if (!d_context) {
+      return;
+  }
+
+  d_context->getShadingSystem().ShaderGroupEnd();
 }
 
 } // End namespace llosl
