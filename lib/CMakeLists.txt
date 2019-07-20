@@ -1,17 +1,20 @@
 add_definitions(${LLVM_DEFINITIONS})
 
 add_library(LLOSL STATIC
+  Builder.cpp
   LLOSLContext.cpp)
 
 target_compile_features(LLOSL PUBLIC cxx_std_17)
 
+target_include_directories(LLOSL BEFORE
+  PRIVATE
+  ${CMAKE_SOURCE_DIR}/include
+  ${LLOSL_DEPS_DIR}/include)
+
 target_include_directories(LLOSL
   PUBLIC
   ${LLVM_INCLUDE_DIRS}
-  ${OPENEXR_INCLUDE_DIR}
-  PRIVATE
-  ${PROJECT_SOURCE_DIR}/include
-  ${LLOSL_DEPS_DIR}/include)
+  ${OPENEXR_INCLUDE_DIR})
 
 llvm_map_components_to_libnames(LLVM_LIBRARIES core support bitreader bitwriter mcjit)
 
