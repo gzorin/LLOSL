@@ -32,13 +32,15 @@ LLOSLContextImpl::llvm_context() const {
     return &d_llcontext;
 }
 
-llvm::ErrorOr<Builder>
+llvm::Expected<Builder>
 LLOSLContextImpl::getBuilder() {
     if (d_builder) {
-	return llvm::ErrorOr<Builder>(make_error_code(LLOSLContext::Error::AlreadyBuilding));
+	return llvm::Expected<Builder>(
+	    llvm::errorCodeToError(
+		make_error_code(LLOSLContext::Error::AlreadyBuilding)));
     }
 
-    return llvm::ErrorOr<Builder>(Builder(*this));
+    return llvm::Expected<Builder>(Builder(*this));
 }
 
 void
@@ -114,7 +116,7 @@ LLOSLContext::getLLContext() {
     return d_impl->getLLContext();
 }
 
-llvm::ErrorOr<Builder>
+llvm::Expected<Builder>
 LLOSLContext::getBuilder() {
     return d_impl->getBuilder();
 }

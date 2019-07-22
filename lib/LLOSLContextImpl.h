@@ -33,7 +33,7 @@ public:
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
 
-  llvm::ErrorOr<Builder>           getBuilder();
+  llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(Builder *);
 
 private:

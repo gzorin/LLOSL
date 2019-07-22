@@ -34,7 +34,7 @@ public:
   const llvm::LLVMContext&   getLLContext() const;
   llvm::LLVMContext&         getLLContext();
 
-  llvm::ErrorOr<Builder>     getBuilder();
+  llvm::Expected<Builder>    getBuilder();
 
 private:
 
