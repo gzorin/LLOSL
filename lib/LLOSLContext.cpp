@@ -13,23 +13,24 @@ namespace llosl {
 // Implementation:
 LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
     : d_llcontext(llcontext)
-    , d_shading_system(new OSL::ShadingSystem(this))
+    , d_shading_system(new OSL::ShadingSystem(this, nullptr, &d_osl_error_handler))
     , d_shading_context(d_shading_system->get_context(d_shading_system->create_thread_info())) {
     d_shading_system->attribute("lockgeom", 0);
     d_shading_system->attribute("optimize", 0);
 }
 
 LLOSLContextImpl::~LLOSLContextImpl() {
-    auto builder = std::exchange(d_builder, nullptr);
-
-    if (builder) {
-	builder->reset();
-    }
+    assert(!d_builder);
 }
 
 llvm::LLVMContext *
 LLOSLContextImpl::llvm_context() const {
     return &d_llcontext;
+}
+
+OSLErrorScope
+LLOSLContextImpl::enterOSLErrorScope() {
+    return d_osl_error_handler.enter();
 }
 
 llvm::Expected<Builder>

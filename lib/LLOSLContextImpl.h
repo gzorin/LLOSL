@@ -2,6 +2,8 @@
 #ifndef LLOSLCONTEXTIMPL_H
 #define LLOSLCONTEXTIMPL_H
 
+#include "OSLErrorHandler.h"
+
 #include <llosl/LLOSLContext.h>
 
 #include <OSL/oslexec.h>
@@ -33,6 +35,8 @@ public:
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
 
+  OSLErrorScope                    enterOSLErrorScope();
+
   llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(Builder *);
 
@@ -40,6 +44,8 @@ private:
 
   // OSL::RendererServices overrides:
   llvm::LLVMContext *llvm_context() const override;
+
+  OSLErrorHandler d_osl_error_handler;
 
   llvm::LLVMContext& d_llcontext;
   std::unique_ptr<OSL::ShadingSystem> d_shading_system;
