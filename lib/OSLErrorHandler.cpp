@@ -95,8 +95,14 @@ OSLErrorHandler::enter()
 
 void
 OSLErrorHandler::operator()(int errcode, const std::string& msg) {
-    OSL::ErrorHandler::operator()(errcode, msg);
     if (d_scopes.empty()) {
+	return;
+    }
+
+    auto errcode_high = errcode >> 16;
+
+    if (errcode_high != OSL::ErrorHandler::EH_ERROR &&
+	errcode_high != OSL::ErrorHandler::EH_SEVERE) {
 	return;
     }
 
