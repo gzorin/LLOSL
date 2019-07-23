@@ -118,7 +118,38 @@ Builder::EndShaderGroup() {
 
   d_context->getShadingSystem().ShaderGroupEnd();
 
-  return osl_error_scope.takeError();
+  auto error = osl_error_scope.takeError();
+
+  if (error) {
+      d_state = State::kInvalidError;
+  }
+
+  return std::move(error);
+}
+
+llvm::Error
+Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::StringRef layername) {
+  switch(d_state) {
+  case State::kInvalidContext:
+      return llvm::make_error<Error>(Error::Code::InvalidContext);
+  case State::kInvalidError:
+      return llvm::make_error<Error>(Error::Code::InvalidError);
+  default:
+      break;
+  }
+
+  auto osl_error_scope = d_context->enterOSLErrorScope();
+
+  d_context->getShadingSystem().Shader(
+      ConvertStringRef(usage), ConvertStringRef(shadername), ConvertStringRef(layername));
+
+  auto error = osl_error_scope.takeError();
+
+  if (error) {
+      d_state = State::kInvalidError;
+  }
+
+  return std::move(error);
 }
 
 } // End namespace llosl

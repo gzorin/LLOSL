@@ -47,6 +47,8 @@ public:
   llvm::Error BeginShaderGroup(llvm::StringRef, llvm::StringRef);
   llvm::Error EndShaderGroup();
 
+  llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
+
 private:
 
   friend class LLOSLContextImpl;
