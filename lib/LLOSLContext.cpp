@@ -45,7 +45,7 @@ LLOSLContextImpl::getBuilder() {
 }
 
 void
-LLOSLContextImpl::resetBuilder(Builder *builder) {
+LLOSLContextImpl::resetBuilder(BuilderImpl *builder) {
     d_builder = builder;
 }
 

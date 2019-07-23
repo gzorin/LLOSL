@@ -51,42 +51,47 @@ std::error_code Builder::Error::convertToErrorCode() const {
     return std::error_code(static_cast<int>(d_code), ErrorCategory::Get());
 }
 
-Builder::Builder(LLOSLContextImpl& context)
+class BuilderImpl {
+public:
+
+    using Error = Builder::Error;
+
+    BuilderImpl(LLOSLContextImpl&);
+    ~BuilderImpl();
+
+    BuilderImpl() = delete;
+    BuilderImpl(const BuilderImpl&) = delete;
+    BuilderImpl(BuilderImpl&&) = delete;
+
+    llvm::Error BeginShaderGroup(llvm::StringRef, llvm::StringRef);
+    llvm::Error EndShaderGroup();
+
+    llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
+
+private:
+
+    enum class State {
+	kValid, kInvalidContext, kInvalidError
+    };
+    
+    State d_state = State::kValid;
+    LLOSLContextImpl *d_context;
+
+    OSL::ShaderGroupRef d_shader_group;
+};
+
+BuilderImpl::BuilderImpl(LLOSLContextImpl& context)
     : d_context(&context)
     , d_state(State::kValid) {
     d_context->resetBuilder(this);
 }
 
-Builder::Builder(Builder&& rhs)
-    : d_context(nullptr)
-    , d_state(State::kInvalidContext) {
-    *this = std::move(rhs);
-}
-
-Builder::~Builder() {
-    if (d_context) {
-	d_context->resetBuilder(nullptr);
-    }
-}
-
-Builder&
-Builder::operator =(Builder&& rhs) {
-    if (d_context) {
-	d_context->resetBuilder(nullptr);
-    }
-
-    std::swap(d_context, rhs.d_context);
-    std::swap(d_state, rhs.d_state);
-
-    if (d_context) {
-	d_context->resetBuilder(this);
-    }
-
-    return *this;
+BuilderImpl::~BuilderImpl() {
+    d_context->resetBuilder(nullptr);
 }
 
 llvm::Error
-Builder::BeginShaderGroup(llvm::StringRef name, llvm::StringRef usage) {
+BuilderImpl::BeginShaderGroup(llvm::StringRef name, llvm::StringRef usage) {
   switch(d_state) {
   case State::kInvalidContext:
       return llvm::make_error<Error>(Error::Code::InvalidContext);
@@ -98,13 +103,13 @@ Builder::BeginShaderGroup(llvm::StringRef name, llvm::StringRef usage) {
 
   auto osl_error_scope = d_context->enterOSLErrorScope();
 
-  d_context->getShadingSystem().ShaderGroupBegin(ConvertStringRef(name), ConvertStringRef(usage));
+  d_shader_group = d_context->getShadingSystem().ShaderGroupBegin(ConvertStringRef(name), ConvertStringRef(usage));
 
   return osl_error_scope.takeError();
 }
 
 llvm::Error
-Builder::EndShaderGroup() {
+BuilderImpl::EndShaderGroup() {
   switch(d_state) {
   case State::kInvalidContext:
       return llvm::make_error<Error>(Error::Code::InvalidContext);
@@ -128,7 +133,7 @@ Builder::EndShaderGroup() {
 }
 
 llvm::Error
-Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::StringRef layername) {
+BuilderImpl::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::StringRef layername) {
   switch(d_state) {
   case State::kInvalidContext:
       return llvm::make_error<Error>(Error::Code::InvalidContext);
@@ -150,6 +155,38 @@ Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::String
   }
 
   return std::move(error);
+}
+
+Builder::Builder(LLOSLContextImpl& context)
+    : d_impl(std::make_unique<BuilderImpl>(context)) {
+}
+
+Builder::Builder(Builder&& rhs) {
+    *this = std::move(rhs);
+}
+
+Builder::~Builder() {
+}
+
+Builder&
+Builder::operator =(Builder&& rhs) {
+    std::swap(d_impl, rhs.d_impl);
+    return *this;
+}
+
+llvm::Error
+Builder::BeginShaderGroup(llvm::StringRef name, llvm::StringRef usage) {
+    return d_impl->BeginShaderGroup(name, usage);
+}
+
+llvm::Error
+Builder::EndShaderGroup() {
+    return d_impl->EndShaderGroup();
+}
+
+llvm::Error
+Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::StringRef layername) {
+    return d_impl->AddNode(usage, shadername, layername);
 }
 
 } // End namespace llosl

@@ -14,7 +14,7 @@ class LLVMContext;
 
 namespace llosl {
 
-class Builder;
+class BuilderImpl;
 
 class LLOSLContextImpl : private OSL::RendererServices {
 public:
@@ -38,7 +38,7 @@ public:
   OSLErrorScope                    enterOSLErrorScope();
 
   llvm::Expected<Builder>          getBuilder();
-  void                             resetBuilder(Builder *);
+  void                             resetBuilder(BuilderImpl *);
 
 private:
 
@@ -51,7 +51,7 @@ private:
   std::unique_ptr<OSL::ShadingSystem> d_shading_system;
   OSL::ShadingContext *d_shading_context;
 
-  Builder *d_builder = nullptr;
+  BuilderImpl *d_builder = nullptr;
 };
 
 }

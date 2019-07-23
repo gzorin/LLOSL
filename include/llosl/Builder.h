@@ -5,8 +5,11 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Error.h>
 
+#include <memory>
+
 namespace llosl {
 
+class BuilderImpl;
 class LLOSLContextImpl;
 
 class Builder {
@@ -53,14 +56,9 @@ private:
 
   friend class LLOSLContextImpl;
 
-  enum class State {
-      kValid, kInvalidContext, kInvalidError
-  };
-
   Builder(LLOSLContextImpl& context);
 
-  State d_state = State::kValid;
-  LLOSLContextImpl *d_context;
+  std::unique_ptr<BuilderImpl> d_impl;
 };
 
 } // End namespace llosl
