@@ -3,7 +3,8 @@ add_definitions(${LLVM_DEFINITIONS})
 add_library(LLOSL STATIC
   Builder.cpp
   LLOSLContext.cpp
-  OSLErrorHandler.cpp)
+  OSLErrorHandler.cpp
+  ShaderGroup.cpp)
 
 target_compile_features(LLOSL PUBLIC cxx_std_17)
 

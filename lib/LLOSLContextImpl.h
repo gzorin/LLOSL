@@ -35,6 +35,9 @@ public:
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
 
+  const OSL::ShadingContext       *getShadingContext() const { return d_shading_context; }
+  OSL::ShadingContext             *getShadingContext()       { return d_shading_context; }
+
   OSLErrorScope                    enterOSLErrorScope();
 
   llvm::Expected<Builder>          getBuilder();
@@ -44,6 +47,7 @@ private:
 
   // OSL::RendererServices overrides:
   llvm::LLVMContext *llvm_context() const override;
+  int supports(OSL::string_view) const override;
 
   OSLErrorHandler d_osl_error_handler;
 

@@ -13,7 +13,7 @@ namespace llosl {
 // Implementation:
 LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
     : d_llcontext(llcontext)
-    , d_shading_system(new OSL::ShadingSystem(this, nullptr, &d_osl_error_handler))
+    , d_shading_system(new OSL::ShadingSystem(this, nullptr, &d_osl_error_handler)) 
     , d_shading_context(d_shading_system->get_context(d_shading_system->create_thread_info())) {
     d_shading_system->attribute("lockgeom", 0);
     d_shading_system->attribute("optimize", 0);
@@ -26,6 +26,15 @@ LLOSLContextImpl::~LLOSLContextImpl() {
 llvm::LLVMContext *
 LLOSLContextImpl::llvm_context() const {
     return &d_llcontext;
+}
+
+int
+LLOSLContextImpl::supports(OSL::string_view feature) const {
+    if (feature == "LLOSL") {
+	return true;
+    }
+
+    return false;
 }
 
 OSLErrorScope

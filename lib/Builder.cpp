@@ -3,6 +3,8 @@
 
 #include <llosl/Builder.h>
 
+#include <llvm/IR/Module.h>
+
 #include <OSL/oslexec.h>
 
 #include <utility>
@@ -67,6 +69,8 @@ public:
     llvm::Error EndShaderGroup();
 
     llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
+
+    llvm::Expected<ShaderGroup *> Finalize();
 
 private:
 
@@ -157,6 +161,37 @@ BuilderImpl::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::St
   return std::move(error);
 }
 
+llvm::Expected<ShaderGroup *>
+BuilderImpl::Finalize() {
+  switch(d_state) {
+  case State::kInvalidContext:
+      return llvm::make_error<Error>(Error::Code::InvalidContext);
+  case State::kInvalidError:
+      return llvm::make_error<Error>(Error::Code::InvalidError);
+  default:
+      break;
+  }
+
+  auto osl_error_scope = d_context->enterOSLErrorScope();
+
+  auto& shading_system = d_context->getShadingSystem();
+
+  shading_system.optimize_group(d_shader_group.get(), d_context->getShadingContext());
+
+  auto error = osl_error_scope.takeError();
+
+  if (error) {
+      d_state = State::kInvalidError;
+      return std::move(error);
+  }
+
+  auto module = shading_system.get_group_module(d_shader_group.get());
+
+  module->dump();
+
+  return llvm::Expected<ShaderGroup *>(nullptr);
+}
+
 Builder::Builder(LLOSLContextImpl& context)
     : d_impl(std::make_unique<BuilderImpl>(context)) {
 }
@@ -187,6 +222,11 @@ Builder::EndShaderGroup() {
 llvm::Error
 Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::StringRef layername) {
     return d_impl->AddNode(usage, shadername, layername);
+}
+
+llvm::Expected<ShaderGroup *>
+Builder::Finalize() {
+    return d_impl->Finalize();
 }
 
 } // End namespace llosl

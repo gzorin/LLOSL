@@ -11,6 +11,7 @@ namespace llosl {
 
 class BuilderImpl;
 class LLOSLContextImpl;
+class ShaderGroup;
 
 class Builder {
 public:
@@ -51,6 +52,8 @@ public:
   llvm::Error EndShaderGroup();
 
   llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
+
+  llvm::Expected<ShaderGroup *> Finalize();
 
 private:
 
