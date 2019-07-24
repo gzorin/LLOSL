@@ -2,6 +2,7 @@
 #ifndef LLOSL_LLOSLCONTEXT_H
 #define LLOSL_LLOSLCONTEXT_H
 
+#include <llvm/ADT/ilist.h>
 #include <llvm/Support/Error.h>
 
 #include <memory>
@@ -15,6 +16,7 @@ namespace llosl {
 
 class Builder;
 class LLOSLContextImpl;
+class ShaderGroup;
 
 class LLOSLContext {
 public:
@@ -24,6 +26,8 @@ public:
   enum class Error : int {
       AlreadyBuilding = 1
   };
+
+  using ShaderGroupListType = llvm::ilist<ShaderGroup>;
 
   static LLOSLContext       *Get(llvm::LLVMContext *);
   static const LLOSLContext *Get(const llvm::LLVMContext *);

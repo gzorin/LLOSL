@@ -22,6 +22,8 @@ public:
   inline static std::error_code make_error_code(LLOSLContext::Error e) {
       return std::error_code(static_cast<int>(e), LLOSLContext::ErrorCategory());
   }
+
+  using ShaderGroupListType = LLOSLContext::ShaderGroupListType;
   
   static const LLOSLContextImpl& Get(const LLOSLContext& context) { return *context.d_impl; }
   static LLOSLContextImpl&       Get(LLOSLContext& context)       { return *context.d_impl; }
@@ -43,6 +45,12 @@ public:
   llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(BuilderImpl *);
 
+  static ShaderGroupListType LLOSLContextImpl::*getSublistAccess(ShaderGroup *) {
+      return &LLOSLContextImpl::d_shader_groups;
+  }
+
+  void                             addShaderGroup(ShaderGroup *);
+
 private:
 
   void registerClosures();
@@ -58,6 +66,8 @@ private:
   OSL::ShadingContext *d_shading_context;
 
   BuilderImpl *d_builder = nullptr;
+
+  ShaderGroupListType d_shader_groups;
 };
 
 }

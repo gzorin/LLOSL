@@ -1,5 +1,6 @@
 #include <llosl/Builder.h>
 #include <llosl/LLOSLContext.h>
+#include <llosl/ShaderGroup.h>
 
 #include <llvm/IR/LLVMContext.h>
 
@@ -25,6 +26,8 @@ LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
 
 LLOSLContextImpl::~LLOSLContextImpl() {
     assert(!d_builder);
+
+    d_shader_groups.clear();
 }
 
 void
@@ -145,6 +148,11 @@ LLOSLContextImpl::getBuilder() {
 void
 LLOSLContextImpl::resetBuilder(BuilderImpl *builder) {
     d_builder = builder;
+}
+
+void
+LLOSLContextImpl::addShaderGroup(ShaderGroup *shader_group) {
+    d_shader_groups.push_back(shader_group);
 }
 
 // Interface:

@@ -1,9 +1,9 @@
+#include "BuilderImpl.h"
 #include "LLOSLContextImpl.h"
 #include "Util.h"
 
 #include <llosl/Builder.h>
-
-#include <llvm/IR/Module.h>
+#include <llosl/ShaderGroup.h>
 
 #include <OSL/oslexec.h>
 
@@ -52,37 +52,6 @@ Builder::Error::log(llvm::raw_ostream& os) const {
 std::error_code Builder::Error::convertToErrorCode() const {
     return std::error_code(static_cast<int>(d_code), ErrorCategory::Get());
 }
-
-class BuilderImpl {
-public:
-
-    using Error = Builder::Error;
-
-    BuilderImpl(LLOSLContextImpl&);
-    ~BuilderImpl();
-
-    BuilderImpl() = delete;
-    BuilderImpl(const BuilderImpl&) = delete;
-    BuilderImpl(BuilderImpl&&) = delete;
-
-    llvm::Error BeginShaderGroup(llvm::StringRef, llvm::StringRef);
-    llvm::Error EndShaderGroup();
-
-    llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
-
-    llvm::Expected<ShaderGroup *> Finalize();
-
-private:
-
-    enum class State {
-	kValid, kInvalidContext, kInvalidError
-    };
-    
-    State d_state = State::kValid;
-    LLOSLContextImpl *d_context;
-
-    OSL::ShaderGroupRef d_shader_group;
-};
 
 BuilderImpl::BuilderImpl(LLOSLContextImpl& context)
     : d_context(&context)
@@ -185,11 +154,7 @@ BuilderImpl::Finalize() {
       return std::move(error);
   }
 
-  auto module = shading_system.get_group_module(d_shader_group.get());
-
-  module->dump();
-
-  return llvm::Expected<ShaderGroup *>(nullptr);
+  return llvm::Expected<ShaderGroup *>(new ShaderGroup(*this));
 }
 
 Builder::Builder(LLOSLContextImpl& context)
