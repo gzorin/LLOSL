@@ -45,6 +45,8 @@ public:
 
 private:
 
+  void registerClosures();
+
   // OSL::RendererServices overrides:
   llvm::LLVMContext *llvm_context() const override;
   int supports(OSL::string_view) const override;
