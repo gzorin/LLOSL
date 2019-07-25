@@ -23,6 +23,9 @@ public:
 
     ~ShaderGroup();
 
+    const llvm::Module *module() const { return d_module.get(); }
+    llvm::Module       *module()       { return d_module.get(); }
+
 private:
 
     ShaderGroup(BuilderImpl&);
