@@ -130,7 +130,7 @@ BuilderImpl::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::St
   return std::move(error);
 }
 
-llvm::Expected<ShaderGroup *>
+llvm::Expected<std::unique_ptr<ShaderGroup> >
 BuilderImpl::Finalize() {
   switch(d_state) {
   case State::kInvalidContext:
@@ -154,7 +154,7 @@ BuilderImpl::Finalize() {
       return std::move(error);
   }
 
-  return llvm::Expected<ShaderGroup *>(new ShaderGroup(*this));
+  return llvm::Expected<std::unique_ptr<ShaderGroup> >(std::unique_ptr<ShaderGroup>(new ShaderGroup(*this)));
 }
 
 Builder::Builder(LLOSLContextImpl& context)
@@ -189,7 +189,7 @@ Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::String
     return d_impl->AddNode(usage, shadername, layername);
 }
 
-llvm::Expected<ShaderGroup *>
+llvm::Expected<std::unique_ptr<ShaderGroup> >
 Builder::Finalize() {
     return d_impl->Finalize();
 }

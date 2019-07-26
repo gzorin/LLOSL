@@ -53,7 +53,7 @@ public:
 
   llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
 
-  llvm::Expected<ShaderGroup *> Finalize();
+  llvm::Expected<std::unique_ptr<ShaderGroup> > Finalize();
 
 private:
 

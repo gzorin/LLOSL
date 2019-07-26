@@ -50,6 +50,7 @@ public:
   }
 
   void                             addShaderGroup(ShaderGroup *);
+  void                             removeShaderGroup(ShaderGroup *);
 
 private:
 

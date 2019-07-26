@@ -13,6 +13,7 @@ class Module;
 namespace llosl {
 
 class BuilderImpl;
+class LLOSLContextImpl;
 
 class ShaderGroup : public llvm::ilist_node<ShaderGroup> {
 public:
@@ -23,12 +24,16 @@ public:
 
     ~ShaderGroup();
 
+    void removeFromContext();
+
     const llvm::Module *module() const { return d_module.get(); }
     llvm::Module       *module()       { return d_module.get(); }
 
 private:
 
     ShaderGroup(BuilderImpl&);
+
+    LLOSLContextImpl *d_context;
 
     std::unique_ptr<llvm::Module> d_module;
 

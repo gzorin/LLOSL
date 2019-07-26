@@ -155,6 +155,11 @@ LLOSLContextImpl::addShaderGroup(ShaderGroup *shader_group) {
     d_shader_groups.push_back(shader_group);
 }
 
+void
+LLOSLContextImpl::removeShaderGroup(ShaderGroup *shader_group) {
+    d_shader_groups.remove(shader_group);
+}
+
 // Interface:
 namespace {
 
