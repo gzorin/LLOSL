@@ -17,6 +17,10 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     auto shader_group = builder.shader_group();
 
     d_module = std::move(shading_system.get_group_module(shader_group.get()));
+    d_globals_type = shading_system.get_group_globals_type(shader_group.get());
+    d_data_type = shading_system.get_group_data_type(shader_group.get());
+    d_init_function = shading_system.get_group_init_function(shader_group.get());
+    d_main_function = shading_system.get_group_main_function(shader_group.get());
 }
 
 ShaderGroup::~ShaderGroup() {
