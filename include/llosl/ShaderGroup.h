@@ -3,6 +3,7 @@
 #define LLOSL_SHADERGROUP_H
 
 #include <llvm/ADT/ilist_node.h>
+#include <llvm/IR/TrackingMDRef.h>
 
 #include <memory>
 
@@ -34,8 +35,8 @@ public:
     llvm::Type *globals_type() const { return d_globals_type; }
     llvm::Type *data_type() const { return d_data_type; }
 
-    const llvm::Function *init_function() const { return d_init_function; }
-    const llvm::Function *main_function() const { return d_main_function; }
+    const llvm::Function *init_function() const;
+    const llvm::Function *main_function() const;
 
 private:
 
@@ -46,8 +47,9 @@ private:
     std::unique_ptr<llvm::Module> d_module;
     llvm::Type *d_globals_type = nullptr;
     llvm::Type *d_data_type = nullptr;
-    llvm::Function *d_init_function = nullptr;
-    llvm::Function *d_main_function = nullptr;
+
+    llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
+    llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_init_function_md, d_main_function_md;
 
     friend class BuilderImpl;
 };
