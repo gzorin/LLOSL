@@ -5,8 +5,12 @@
 
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Transforms/IPO.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils/UnifyFunctionExitNodes.h>
 
 #include <iostream>
 
@@ -20,6 +24,17 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     auto shader_group = builder.shader_group();
 
     d_module = std::move(shading_system.get_group_module(shader_group.get()));
+
+    auto mpm = std::make_unique<llvm::legacy::PassManager>();
+    mpm->add(llvm::createFunctionInliningPass());
+    mpm->add(llvm::createUnifyFunctionExitNodesPass());
+    mpm->add(llvm::createReassociatePass());
+    mpm->add(llvm::createSCCPPass());
+    mpm->add(llvm::createAggressiveDCEPass());
+    mpm->add(llvm::createCFGSimplificationPass());
+    mpm->add(llvm::createPromoteMemoryToRegisterPass());
+    mpm->run(*d_module);
+
     d_globals_type = shading_system.get_group_globals_type(shader_group.get());
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 
