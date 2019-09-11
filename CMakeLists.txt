@@ -36,7 +36,7 @@ find_library(OpenShadingLanguage_comp_LIBRARY
   PATHS ${LLOSL_DEPS_DIR}/lib
   NO_DEFAULT_PATH)
 
-set(OpenShadingLanguage_LIBRARIES 
+set(OpenShadingLanguage_LIBRARIES
   ${OpenShadingLanguage_exec_LIBRARY} ${OpenShadingLanguage_query_LIBRARY} ${OpenShadingLanguage_comp_LIBRARY})
 
 install(
@@ -45,6 +45,7 @@ install(
 
 add_subdirectory(include)
 add_subdirectory(lib)
+add_subdirectory(lib/IR)
 
 include(CMakePackageConfigHelpers)
 

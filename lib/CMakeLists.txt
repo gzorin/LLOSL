@@ -21,6 +21,7 @@ target_include_directories(LLOSL
 llvm_map_components_to_libnames(LLVM_LIBRARIES core support bitreader bitwriter mcjit)
 
 target_link_libraries(LLOSL
+  LLOSLIR
   ${LLVM_LIBRARIES}
   ${OpenShadingLanguage_LIBRARIES} ${OPENIMAGEIO_LIBRARIES}
   ${OPENEXR_LIBRARIES} ${TIFF_LIBRARIES} ${PNG_LIBRARIES} ${JPEG_LIBRARIES}

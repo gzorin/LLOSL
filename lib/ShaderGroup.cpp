@@ -1,6 +1,7 @@
 #include "BuilderImpl.h"
 #include "LLOSLContextImpl.h"
 
+#include <llosl/IR/ClosureIRPass.h>
 #include <llosl/ShaderGroup.h>
 
 #include <llvm/IR/Constants.h>
@@ -38,10 +39,18 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_globals_type = shading_system.get_group_globals_type(shader_group.get());
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 
+    auto main_function = shading_system.get_group_main_function(shader_group.get());
+
+    auto closure_ir = new ClosureIRPass();
+
+    auto fpm = std::make_unique<llvm::legacy::FunctionPassManager>(d_module.get());
+    fpm->add(closure_ir);
+    fpm->run(*main_function);
+
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
     d_main_function_md.reset(
-        llvm::ValueAsMetadata::get(shading_system.get_group_main_function(shader_group.get())));
+        llvm::ValueAsMetadata::get(main_function));
 
     int parameter_count = 0;
     OSL::ustring *parameter_names = nullptr;
