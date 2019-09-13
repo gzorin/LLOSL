@@ -11,6 +11,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/UnifyFunctionExitNodes.h>
 
 #include <iostream>
@@ -26,8 +27,35 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     d_module = std::move(shading_system.get_group_module(shader_group.get()));
 
+    // Inline layers:
+    auto main_function = shading_system.get_group_main_function(shader_group.get());
+
+    std::vector<llvm::CallInst *> call_instructions;
+
+    std::for_each(
+        main_function->begin(), main_function->end(),
+        [&call_instructions](auto& block) -> void {
+            std::for_each(
+                block.begin(), block.end(),
+                [&call_instructions](auto& instruction) -> void {
+                    auto call_instruction = llvm::dyn_cast<llvm::CallInst>(&instruction);
+                    if (!call_instruction) {
+                        return;
+                    }
+
+                    call_instructions.push_back(call_instruction);
+                });
+        });
+
+    std::for_each(
+        call_instructions.begin(), call_instructions.end(),
+        [](auto call_instruction) -> void {
+            llvm::InlineFunctionInfo info;
+            llvm::InlineFunction(call_instruction, info);
+        });
+
+    // Other optimizations:
     auto mpm = std::make_unique<llvm::legacy::PassManager>();
-    mpm->add(llvm::createFunctionInliningPass());
     mpm->add(llvm::createUnifyFunctionExitNodesPass());
     mpm->add(llvm::createReassociatePass());
     mpm->add(llvm::createSCCPPass());
@@ -38,8 +66,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     d_globals_type = shading_system.get_group_globals_type(shader_group.get());
     d_data_type = shading_system.get_group_data_type(shader_group.get());
-
-    auto main_function = shading_system.get_group_main_function(shader_group.get());
 
     auto closure_ir = new ClosureIRPass();
 

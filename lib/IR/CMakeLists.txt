@@ -1,8 +1,13 @@
 add_definitions(${LLVM_DEFINITIONS})
 
 add_library(LLOSLIR STATIC
+  Block.cpp
   ClosureFunction.cpp
-  ClosureIRPass.cpp)
+  ClosureIRPass.cpp
+  Instruction.cpp
+  Use.cpp
+  User.cpp
+  Value.cpp)
 
 target_compile_features(LLOSLIR PUBLIC cxx_std_17)
 
