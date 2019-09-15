@@ -5,6 +5,7 @@
 #include <llosl/IR/Instruction.h>
 #include <llosl/IR/Value.h>
 
+#include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/ilist.h>
 #include <llvm/ADT/ilist_node.h>
 
@@ -45,6 +46,31 @@ public:
     InstListType::const_iterator insts_begin() const { return d_insts.begin(); }
     InstListType::const_iterator insts_end()   const { return d_insts.end();   }
 
+    void insertSuccessor(Block *);
+    void eraseSuccessor(Block *);
+
+    //
+    using SuccSetType = llvm::DenseSet<Block *>;
+
+    SuccSetType& getSuccSet()             { return d_successors; }
+    const SuccSetType& getSuccSet() const { return d_successors; }
+
+    SuccSetType::iterator       succs_begin()       { return d_successors.begin(); }
+    SuccSetType::iterator       succs_end()         { return d_successors.end();   }
+    SuccSetType::const_iterator succs_begin() const { return d_successors.begin(); }
+    SuccSetType::const_iterator succs_end()   const { return d_successors.end();   }
+
+    //
+    using PredSetType = llvm::DenseSet<Block *>;
+
+    PredSetType& getPredSet()             { return d_predecessors; }
+    const PredSetType& getPredSet() const { return d_predecessors; }
+
+    PredSetType::iterator       preds_begin()       { return d_predecessors.begin(); }
+    PredSetType::iterator       preds_end()         { return d_predecessors.end();   }
+    PredSetType::const_iterator preds_begin() const { return d_predecessors.begin(); }
+    PredSetType::const_iterator preds_end()   const { return d_predecessors.end();   }
+
     //
     const llvm::Value *getLLValue() const override;
 
@@ -55,6 +81,9 @@ private:
     ClosureFunction *d_function = nullptr;
 
     InstListType d_insts;
+
+    PredSetType d_predecessors;
+    SuccSetType d_successors;
 };
 
 } // End namespace llosl

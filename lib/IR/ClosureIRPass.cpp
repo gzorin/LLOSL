@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <iostream>
 #include <list>
+#include <stack>
 
 namespace llvm {
 
@@ -53,9 +54,15 @@ public:
     void beginFunction();
     std::unique_ptr<ClosureFunction> endFunction();
 
+    ClosureFunction *function()             { return d_closure_function.get(); };
+    const ClosureFunction *function() const { return d_closure_function.get(); };
+
     //
     void beginBlock(const llvm::BasicBlock&);
     void endBlock();
+
+    Block *block()             { return d_block; };
+    const Block *block() const { return d_block; };
 
     //
     Alloca                    *createAlloca(const llvm::CallInst&);
@@ -509,10 +516,147 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                 });
         });
 
+    // Construct the CFG:
+    {
+        llvm::DenseMap<const llvm::BasicBlock *, llvm::DenseSet<const llvm::BasicBlock *> > cfg, cfg_back;
+
+        struct Frame {
+            const llvm::BasicBlock *block = nullptr;
+            bool back = false;
+        };
+
+        std::stack<Frame> stack;
+
+        enum class Color {
+            White, Grey, Black
+        };
+
+        llvm::DenseMap<const llvm::BasicBlock *, Color> color;
+
+        std::for_each(
+            F.begin(), F.end(),
+            [&stack, &color](const auto& block) -> void {
+                color[&block] = Color::White;
+
+                if (llvm::succ_begin(&block) == llvm::succ_end(&block)) {
+                    stack.push({ &block, false });
+                }
+            });
+
+        // Duplicate the LLVM IR CFG:
+        while (!stack.empty()) {
+            auto block = stack.top().block;
+            auto back = stack.top().back;
+
+            stack.pop();
+
+            if (!back) {
+                color[block] = Color::Grey;
+
+                std::for_each(
+                    llvm::pred_begin(block), llvm::pred_end(block),
+                    [&stack, &color, &cfg, &cfg_back, block](auto pred) -> void {
+                        cfg[pred].insert(block);
+                        cfg_back[block].insert(pred);
+
+                        if (color[pred] == Color::White) {
+                            stack.push({ pred, false });
+                        }
+                    });
+            }
+            else {
+                color[block] = Color::Black;
+            }
+        }
+
+        // Remove blocks that have nothing to do with closures:
+        std::for_each(
+            context.blocks_begin(), context.blocks_end(),
+            [this, &context, &cfg, &cfg_back](const auto& scc) -> void {
+                std::for_each(
+                    scc.begin(), scc.end(),
+                    [this, &context, &cfg, &cfg_back](const auto ll_block) -> void {
+                        auto block = context.findValue(ll_block);
+                        if (block) {
+                            return;
+                        }
+
+                        // Link each of ll_block's successors to its predecessors, and
+                        // remove ll_block itself from cfg_back:
+                        const auto& succs = cfg[ll_block];
+                        std::for_each(
+                            succs.begin(), succs.end(),
+                            [&cfg_back, ll_block](auto succ) -> void {
+                                const auto& preds = cfg_back[ll_block];
+                                std::for_each(
+                                    preds.begin(), preds.end(),
+                                    [&cfg_back, succ](auto pred) -> void {
+                                        cfg_back[succ].insert(pred);
+                                    });
+
+                                cfg_back[succ].erase(ll_block);
+                            });
+
+                        //
+                        const auto& preds = cfg_back[ll_block];
+                        std::for_each(
+                            preds.begin(), preds.end(),
+                            [&cfg, ll_block](auto pred) -> void {
+                                const auto& succs = cfg[ll_block];
+                                std::for_each(
+                                    succs.begin(), succs.end(),
+                                    [&cfg, pred](auto succ) -> void {
+                                        cfg[pred].insert(succ);
+                                    });
+
+                                cfg[pred].erase(ll_block);
+                            });
+
+                        cfg.erase(ll_block);
+                        cfg_back.erase(ll_block);
+                    });
+            });
+
+        std::for_each(
+            cfg.begin(), cfg.end(),
+            [&context](const auto &tmp) -> void {
+                auto value = context.findValue(tmp.first);
+                assert(value);
+
+                auto block = llvm::cast<Block>(*value);
+                assert(block);
+
+                std::for_each(
+                    tmp.second.begin(), tmp.second.end(),
+                    [&context, block](auto ll_succ) -> void {
+                        auto value = context.findValue(ll_succ);
+                        assert(value);
+
+                        auto succ = llvm::cast<Block>(*value);
+                        assert(succ);
+
+                        block->insertSuccessor(succ);
+                    });
+            });
+
+        std::for_each(
+            context.function()->blocks_begin(), context.function()->blocks_end(),
+            [&cfg](const auto& block) -> void {
+                std::cerr << block.getLLValue()->getName().str() << std::endl;
+
+                std::for_each(
+                    block.succs_begin(), block.succs_end(),
+                    [](auto succ) -> void {
+                        std::cerr << "\t" << succ->getLLValue()->getName().str() << std::endl;
+                    });
+            });
+    }
+
     auto function = context.endFunction();
 
     std::cerr << function->getClosureStorageCount() << " closure slots" << std::endl;
 
+#if 0
     std::for_each(
         function->blocks_begin(), function->blocks_end(),
         [](const auto& block) {
@@ -525,6 +669,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                 }
             );
         });
+#endif
 
     return true;
 }

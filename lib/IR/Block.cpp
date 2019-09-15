@@ -41,6 +41,28 @@ Block::setParent(ClosureFunction *function) {
     }
 }
 
+void
+Block::insertSuccessor(Block *block) {
+    auto it = d_successors.find(block);
+    if (it != d_successors.end()) {
+        return;
+    }
+
+    d_successors.insert(block);
+    block->d_predecessors.insert(this);
+}
+
+void
+Block::eraseSuccessor(Block *block) {
+    auto it = d_successors.find(block);
+    if (it == d_successors.end()) {
+        return;
+    }
+
+    d_successors.erase(block);
+    block->d_predecessors.erase(this);
+}
+
 const llvm::Value *
 Block::getLLValue() const {
     return &d_ll_block;
