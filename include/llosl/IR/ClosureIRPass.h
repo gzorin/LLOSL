@@ -4,6 +4,8 @@
 
 #include <llvm/Pass.h>
 
+#include <memory>
+
 namespace llosl {
 
 class ClosureFunction;
@@ -14,8 +16,8 @@ public:
 
     ClosureIRPass();
 
-    ClosureFunction &getIR()             { return *d_closure_function; }
-    const ClosureFunction &getIR() const { return *d_closure_function; }
+    std::shared_ptr<ClosureFunction>       getIR()       { return d_closure_function; }
+    std::shared_ptr<const ClosureFunction> getIR() const { return d_closure_function; }
 
     bool runOnFunction(llvm::Function &F) override;
 
@@ -25,12 +27,10 @@ private:
 
     class Context;
 
-    std::unique_ptr<Context> d_context;
-
-    std::unique_ptr<ClosureFunction> d_closure_function;
+    std::shared_ptr<ClosureFunction> d_closure_function;
 };
 
-llvm::FunctionPass *createClosureInfoPass();
+llvm::FunctionPass *createClosureIRPass();
 
 } // End namespace llosl
 

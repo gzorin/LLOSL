@@ -411,11 +411,7 @@ llvm::FunctionPass *createClosureIRPass() {
 }
 
 bool ClosureIRPass::runOnFunction(llvm::Function &F) {
-    std::cerr << __PRETTY_FUNCTION__ << std::endl;
-
     Context context(F, getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
-
-    F.dump();
 
     // Determine closure storage:
     std::for_each(
@@ -654,22 +650,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
 
     auto function = context.endFunction();
 
-    std::cerr << function->getClosureStorageCount() << " closure slots" << std::endl;
-
-#if 0
-    std::for_each(
-        function->blocks_begin(), function->blocks_end(),
-        [](const auto& block) {
-            std::cerr << "block" << std::endl;
-
-            std::for_each(
-                block.insts_begin(), block.insts_end(),
-                [](const auto& inst) {
-                    inst.dump();
-                }
-            );
-        });
-#endif
+    d_closure_function = std::move(function);
 
     return true;
 }
@@ -687,5 +668,5 @@ using namespace llvm;
 INITIALIZE_PASS_BEGIN(ClosureIRPass, "llosl-closure-ir",
                       "ClosureIR", false, false)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_END(ClosureIRPass, "llosl-closure-info",
+INITIALIZE_PASS_END(ClosureIRPass, "llosl-closure-ir",
                     "ClosureIR", false, false)
