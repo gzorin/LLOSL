@@ -2,6 +2,7 @@
 #include "LLOSLContextImpl.h"
 
 #include <llosl/IR/ClosureIRPass.h>
+#include <llosl/IR/InstrumentationPass.h>
 #include <llosl/ShaderGroup.h>
 
 #include <llvm/IR/Constants.h>
@@ -29,6 +30,7 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     // Inline layers:
     auto main_function = shading_system.get_group_main_function(shader_group.get());
+    auto main_function_name = main_function->getName();
 
     std::vector<llvm::CallInst *> call_instructions;
 
@@ -68,10 +70,17 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 
     auto closure_ir = new ClosureIRPass();
+    auto instrumentation = new InstrumentationPass();
 
     auto fpm = std::make_unique<llvm::legacy::FunctionPassManager>(d_module.get());
     fpm->add(closure_ir);
+    fpm->add(instrumentation);
     fpm->run(*main_function);
+
+    main_function = d_module->getFunction(main_function_name);
+    assert(main_function);
+
+    d_module->dump();
 
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));

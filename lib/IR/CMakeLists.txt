@@ -5,6 +5,7 @@ add_library(LLOSLIR STATIC
   ClosureFunction.cpp
   ClosureIRPass.cpp
   Instruction.cpp
+  InstrumentationPass.cpp
   Use.cpp
   User.cpp
   Value.cpp)
