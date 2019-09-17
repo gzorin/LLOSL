@@ -7,6 +7,7 @@
 #include <llvm/ADT/Optional.h>
 #include <llvm/ADT/SCCIterator.h>
 #include <llvm/Analysis/BasicAliasAnalysis.h>
+#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/MemoryLocation.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
@@ -28,7 +29,10 @@ namespace llosl {
 class ClosureIRPass::Context {
 public:
 
-    Context(llvm::Function&, llvm::AAResults&);
+    Context(llvm::Function&, llvm::LoopInfo&, llvm::AAResults&);
+
+    llvm::LoopInfo&       loop_info()       { return d_loop_info; }
+    const llvm::LoopInfo& loop_info() const { return d_loop_info; }
 
     llvm::Function *osl_init_closure_storage                = nullptr,
                    *osl_add_closure_closure                 = nullptr,
@@ -97,6 +101,7 @@ private:
     llvm::LLVMContext& d_ll_context;
     llvm::Module& d_module;
     llvm::Function& d_function;
+    llvm::LoopInfo& d_loop_info;
     llvm::AAResults& d_aa;
 
     SortedBlocks d_sorted_blocks;
@@ -118,10 +123,11 @@ private:
     llvm::DenseMap<const llvm::Value *, Value *> d_value_map;
 };
 
-ClosureIRPass::Context::Context(llvm::Function& function, llvm::AAResults& aa)
+ClosureIRPass::Context::Context(llvm::Function& function, llvm::LoopInfo& loop_info, llvm::AAResults& aa)
 : d_ll_context(function.getParent()->getContext())
 , d_module(*function.getParent())
 , d_function(function)
+, d_loop_info(loop_info)
 , d_aa(aa) {
     osl_init_closure_storage                = d_module.getFunction("osl_init_closure_storage");
     osl_add_closure_closure                 = d_module.getFunction("osl_add_closure_closure");
@@ -411,14 +417,22 @@ llvm::FunctionPass *createClosureIRPass() {
 }
 
 bool ClosureIRPass::runOnFunction(llvm::Function &F) {
-    Context context(F, getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
+    Context context(F,
+        getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo(),
+        getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
+
+    F.dump();
 
     // Determine closure storage:
     std::for_each(
         context.blocks_begin(), context.blocks_end(),
         [this, &context](const auto& scc) -> void {
+            if (context.loop_info().isLoopHeader(*scc.rbegin())) {
+                return;
+            }
+
             std::for_each(
-                scc.begin(), scc.end(),
+                scc.rbegin(), scc.rend(),
                 [this, &context](const auto block) -> void {
                     std::for_each(
                         block->begin(), block->end(),
@@ -453,8 +467,12 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
     std::for_each(
         context.blocks_begin(), context.blocks_end(),
         [this, &context](const auto& scc) -> void {
+            if (context.loop_info().isLoopHeader(*scc.rbegin())) {
+                return;
+            }
+
             std::for_each(
-                scc.begin(), scc.end(),
+                scc.rbegin(), scc.rend(),
                 [this, &context](const auto block) -> void {
                     context.beginBlock(*block);
 
@@ -657,6 +675,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
 
 void ClosureIRPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.setPreservesAll();
+    AU.addRequired<llvm::LoopInfoWrapperPass>();
     AU.addRequired<llvm::AAResultsWrapperPass>();
 }
 

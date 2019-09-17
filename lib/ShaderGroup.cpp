@@ -80,7 +80,7 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     main_function = d_module->getFunction(main_function_name);
     assert(main_function);
 
-    d_module->dump();
+    //d_module->dump();
 
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
