@@ -1,9 +1,9 @@
+#include <llosl/IR/ClosureFunction.h>
 #include <llosl/IR/ClosureIRPass.h>
+#include <llosl/IR/PathInfoPass.h>
 #include <llosl/IR/InstrumentationPass.h>
 
 #include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/SCCIterator.h>
-#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -14,7 +14,6 @@
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 
 #include <algorithm>
-#include <iostream>
 #include <numeric>
 
 namespace llvm {
@@ -36,69 +35,12 @@ llvm::FunctionPass *createInstrumentationPass() {
 }
 
 bool InstrumentationPass::runOnFunction(llvm::Function &F) {
-    auto function = getAnalysis<ClosureIRPass>().getFunction();
-    auto& loop_info = getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo();
+    auto path_info = getAnalysis<PathInfoPass>().getPathInfo();
+
+    auto function = path_info->getIR();
 
     auto module = F.getParent();
     auto& ll_context = module->getContext();
-
-    struct BlockInfo {
-        unsigned num_paths = 0;
-        llvm::DenseMap<const llvm::BasicBlock *, unsigned> edge_id;
-    };
-
-    llvm::DenseMap<llvm::BasicBlock *, BlockInfo> block_infos;
-
-    auto scc_begin = llvm::scc_iterator<llvm::Function *>::begin(&F),
-         scc_end   = llvm::scc_iterator<llvm::Function *>::end(&F);
-
-    std::for_each(
-        scc_begin, scc_end,
-        [&loop_info, &block_infos](const auto& scc) -> void {
-            auto header_block = *scc.rbegin();
-
-            if (loop_info.isLoopHeader(header_block)) {
-                auto loop = loop_info.getLoopFor(header_block);
-
-                llvm::SmallVector<llvm::BasicBlock *, 1> exit_blocks;
-                loop->getExitBlocks(exit_blocks);
-
-                auto& block_info = block_infos[header_block];
-
-                block_info.num_paths = 0;
-
-                std::for_each(
-                    exit_blocks.begin(), exit_blocks.end(),
-                    [&block_infos, header_block, &block_info](auto exit_block) -> void {
-                        block_info.edge_id[exit_block] = block_info.num_paths;
-                        block_info.num_paths += block_infos[exit_block].num_paths;
-                    });
-
-                return;
-            }
-
-            std::for_each(
-                scc.begin(), scc.end(),
-                [&block_infos](const auto block) -> void {
-                    auto& block_info = block_infos[block];
-
-                    auto terminator = block->getTerminator();
-
-                    if (llvm::isa<llvm::ReturnInst>(terminator)) {
-                        block_info.num_paths = 1;
-                        return;
-                    }
-
-                    block_info.num_paths = 0;
-
-                    std::for_each(
-                        llvm::succ_begin(block), llvm::succ_end(block),
-                        [&block_infos, block, &block_info](auto succ) -> void {
-                            block_info.edge_id[succ] = block_info.num_paths;
-                            block_info.num_paths += block_infos[succ].num_paths;
-                        });
-                });
-        });
 
     auto int16_type = llvm::Type::getInt16Ty(ll_context);
 
@@ -137,97 +79,73 @@ bool InstrumentationPass::runOnFunction(llvm::Function &F) {
         block->insertInto(instrumented_function);
     }
 
+    // Instrument the blocks:
     std::for_each(
-        block_infos.begin(), block_infos.end(),
-        [&loop_info, &ll_context, instrumented_function, int16_type, path_id](const auto& tmp) {
-            auto block = tmp.first;
-            const auto& block_info = tmp.second;
+        function->blocks_begin(), function->blocks_end(),
+        [&path_info, &ll_context, instrumented_function, path_id](auto& block) -> void {
+            auto ll_block = const_cast<llvm::BasicBlock *>(llvm::cast<llvm::BasicBlock>(block.getLLValue())); // Bah....
 
+            // Load the current value of `path_id` for this block:
             auto current_path_id = new llvm::LoadInst(path_id, "llosl.cur.path_id.");
-            auto it = block->getFirstInsertionPt();
-            block->getInstList().insert(it, current_path_id);
+            auto it = ll_block->getFirstInsertionPt();
+            ll_block->getInstList().insert(it, current_path_id);
 
-            if (loop_info.isLoopHeader(block)) {
-                auto loop = loop_info.getLoopFor(block);
+            // A block that returns from the function should just return the value of `path_id`:
+            if (block.succs_begin() == block.succs_end()) {
+                auto terminator = ll_block->getTerminator();
+                assert(llvm::isa<llvm::ReturnInst>(terminator));
 
-                llvm::SmallVector<llvm::BasicBlock *, 1> exiting_blocks;
-                loop->getExitingBlocks(exiting_blocks);
-
-                std::for_each(
-                    exiting_blocks.begin(), exiting_blocks.end(),
-                    [&ll_context, instrumented_function, int16_type, path_id, &block_info, current_path_id](auto block) -> void {
-                        auto terminator = block->getTerminator();
-
-                        if (llvm::isa<llvm::ReturnInst>(terminator)) {
-                            auto return_terminator = llvm::ReturnInst::Create(ll_context, current_path_id);
-                            llvm::ReplaceInstWithInst(terminator, return_terminator);
-                            return;
-                        }
-
-                        for (unsigned i = 0, n = terminator->getNumSuccessors(); i < n; ++i) {
-                            auto succ = terminator->getSuccessor(i);
-                            auto it = block_info.edge_id.find(succ);
-                            if (it == block_info.edge_id.end()) {
-                                continue;
-                            }
-
-                            auto edge_id = it->second;
-
-                            auto incr_block = llvm::BasicBlock::Create(ll_context, "llosl.incr.path_id.", instrumented_function);
-
-                            llvm::IRBuilder<> builder(ll_context);
-                            builder.SetInsertPoint(incr_block);
-
-                            auto add_path_id = builder.CreateAdd(
-                                current_path_id, llvm::ConstantInt::get(int16_type, edge_id, false));
-                            builder.CreateStore(add_path_id, path_id);
-                            builder.CreateBr(succ);
-
-                            terminator->setSuccessor(i, incr_block);
-                        }
-                    });
-
-                return;
-            }
-
-            auto terminator = block->getTerminator();
-
-            if (llvm::isa<llvm::ReturnInst>(terminator)) {
                 auto return_terminator = llvm::ReturnInst::Create(ll_context, current_path_id);
                 llvm::ReplaceInstWithInst(terminator, return_terminator);
+
                 return;
             }
 
-            for (unsigned i = 0, n = terminator->getNumSuccessors(); i < n; ++i) {
-                auto succ = terminator->getSuccessor(i);
-                auto it = block_info.edge_id.find(succ);
-                assert(it != block_info.edge_id.end());
+            // Otherwise, insert a block that increments `path_id` by `edge_id`:
+            std::for_each(
+                block.succs_begin(), block.succs_end(),
+                [&ll_context, &path_info, instrumented_function, path_id, current_path_id, &block](const auto& succs) -> void {
+                    auto succ = succs.first;
+                    const auto& terminators = succs.second;
 
-                auto edge_id = it->second;
+                    auto ll_succ = const_cast<llvm::BasicBlock *>(llvm::cast<llvm::BasicBlock>(succ->getLLValue())); // Bah....
 
-                auto incr_block = llvm::BasicBlock::Create(ll_context, "llosl.incr.path_id.", instrumented_function);
+                    auto edge_id = path_info->getEdgeIDForBlocks(&block, succ);
+                    assert(edge_id);
 
-                llvm::IRBuilder<> builder(ll_context);
-                builder.SetInsertPoint(incr_block);
+                    auto incr_block = llvm::BasicBlock::Create(ll_context, "llosl.incr.path_id.", instrumented_function);
 
-                auto add_path_id = builder.CreateAdd(
-                    current_path_id, llvm::ConstantInt::get(int16_type, edge_id, false));
-                builder.CreateStore(add_path_id, path_id);
-                builder.CreateBr(succ);
+                    llvm::IRBuilder<> builder(ll_context);
+                    builder.SetInsertPoint(incr_block);
 
-                terminator->setSuccessor(i, incr_block);
-            }
+                    auto int16_type = llvm::Type::getInt16Ty(ll_context);
+
+                    auto add_path_id = builder.CreateAdd(
+                        current_path_id, llvm::ConstantInt::get(int16_type, *edge_id, false));
+                    builder.CreateStore(add_path_id, path_id);
+                    builder.CreateBr(ll_succ);
+
+                    // Replace
+                    std::for_each(
+                        terminators.begin(), terminators.end(),
+                        [ll_succ, incr_block](auto tmp) -> void {
+                            auto terminator = const_cast<llvm::TerminatorInst *>(tmp.first);
+                            auto successor_index = tmp.second;
+                            assert(terminator->getSuccessor(successor_index) == ll_succ);
+
+                            terminator->setSuccessor(successor_index, incr_block);
+                        });
+                });
         });
 
-    instrumented_function->dump();
+    //instrumented_function->dump();
 
     return true;
 }
 
 void InstrumentationPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.setPreservesAll();
-    AU.addRequired<ClosureIRPass>();
-    AU.addRequired<llvm::LoopInfoWrapperPass>();
+    AU.addRequired<PathInfoPass>();
 }
 
 } // End namespace llosl
