@@ -6,7 +6,7 @@
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/IR/Value.h>
 
-#include <iostream>
+#include <algorithm>
 #include <list>
 #include <stack>
 
@@ -171,6 +171,9 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
                     path_info->insertEdge(block, succ);
                 });
         });
+
+    path_info->d_block_list = std::move(blocks);
+    std::reverse(path_info->d_block_list.begin(), path_info->d_block_list.end());
 
     d_path_info = std::move(path_info);
 

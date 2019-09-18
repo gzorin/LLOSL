@@ -6,6 +6,8 @@
 #include <llvm/ADT/Optional.h>
 #include <llvm/Pass.h>
 
+#include <list>
+
 namespace llosl {
 
 class Block;
@@ -34,12 +36,33 @@ public:
     llvm::Optional<const EdgeIDMap *> getEdgeIDsForBlock(const Block *) const;
     llvm::Optional<unsigned> getEdgeIDForBlocks(const Block *, const Block *) const;
 
+    // The list of blocks in topological order:
+    using BlockList = std::list<const Block *>;
+
+    BlockList&       getBlockList()       { return d_block_list; }
+    const BlockList& getBlockList() const { return d_block_list; }
+
+    BlockList::iterator       blocks_begin()       { return d_block_list.begin(); }
+    BlockList::iterator       blocks_end()         { return d_block_list.end();   }
+
+    BlockList::const_iterator blocks_begin() const { return d_block_list.begin(); }
+    BlockList::const_iterator blocks_end()   const { return d_block_list.end();   }
+
+    BlockList::reverse_iterator       blocks_rbegin()       { return d_block_list.rbegin(); }
+    BlockList::reverse_iterator       blocks_rend()         { return d_block_list.rend();   }
+
+    BlockList::const_reverse_iterator blocks_rbegin() const { return d_block_list.rbegin(); }
+    BlockList::const_reverse_iterator blocks_rend()   const { return d_block_list.rend();   }
+
+    unsigned getPathCount() const { return *getPathCountForBlock(*blocks_begin()); }
+
 private:
 
     void insertLeaf(const Block *);
     void insertEdge(const Block *, const Block *);
 
     std::shared_ptr<const ClosureFunction> d_ir;
+    std::list<const Block *> d_block_list;
     BlockInfoMap d_block_info;
 
     friend class PathInfoPass;
