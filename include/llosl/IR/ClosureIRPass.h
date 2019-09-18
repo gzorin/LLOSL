@@ -16,7 +16,6 @@ public:
 
     ClosureIRPass();
 
-    std::shared_ptr<ClosureFunction>       getIR()       { return d_closure_function; }
     std::shared_ptr<const ClosureFunction> getIR() const { return d_closure_function; }
 
     bool runOnFunction(llvm::Function &F) override;
@@ -27,7 +26,7 @@ private:
 
     class Context;
 
-    std::shared_ptr<ClosureFunction> d_closure_function;
+    std::shared_ptr<const ClosureFunction> d_closure_function;
 };
 
 llvm::FunctionPass *createClosureIRPass();

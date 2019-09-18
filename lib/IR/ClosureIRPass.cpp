@@ -598,6 +598,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
             }
         }
 
+#if 0
         std::for_each(
             context.function()->blocks_begin(), context.function()->blocks_end(),
             [](const auto& block) -> void {
@@ -609,6 +610,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                         std::cerr << "\t" << succ.first->getLLValue()->getName().str() << std::endl;
                     });
             });
+#endif
     }
 
     auto function = context.endFunction();

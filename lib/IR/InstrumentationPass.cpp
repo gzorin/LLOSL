@@ -1,3 +1,4 @@
+#include <llosl/IR/ClosureIRPass.h>
 #include <llosl/IR/InstrumentationPass.h>
 
 #include <llvm/ADT/DenseMap.h>
@@ -35,6 +36,7 @@ llvm::FunctionPass *createInstrumentationPass() {
 }
 
 bool InstrumentationPass::runOnFunction(llvm::Function &F) {
+    auto function = getAnalysis<ClosureIRPass>().getFunction();
     auto& loop_info = getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo();
 
     auto module = F.getParent();
@@ -224,6 +226,7 @@ bool InstrumentationPass::runOnFunction(llvm::Function &F) {
 
 void InstrumentationPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.setPreservesAll();
+    AU.addRequired<ClosureIRPass>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
 }
 

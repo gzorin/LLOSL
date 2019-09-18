@@ -3,6 +3,7 @@
 
 #include <llosl/IR/ClosureIRPass.h>
 #include <llosl/IR/InstrumentationPass.h>
+#include <llosl/IR/PathInfoPass.h>
 #include <llosl/ShaderGroup.h>
 
 #include <llvm/IR/Constants.h>
@@ -70,10 +71,12 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 
     auto closure_ir = new ClosureIRPass();
+    auto path_info = new PathInfoPass();
     auto instrumentation = new InstrumentationPass();
 
     auto fpm = std::make_unique<llvm::legacy::FunctionPassManager>(d_module.get());
     fpm->add(closure_ir);
+    fpm->add(path_info);
     fpm->add(instrumentation);
     fpm->run(*main_function);
 
