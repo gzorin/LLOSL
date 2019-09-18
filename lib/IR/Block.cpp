@@ -2,6 +2,7 @@
 #include <llosl/IR/ClosureFunction.h>
 
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/InstrTypes.h>
 
 namespace llosl {
 
@@ -42,14 +43,12 @@ Block::setParent(ClosureFunction *function) {
 }
 
 void
-Block::insertSuccessor(Block *block) {
-    auto it = d_successors.find(block);
-    if (it != d_successors.end()) {
-        return;
-    }
+Block::insertSuccessor(Block *block, const llvm::TerminatorInst * terminator, unsigned successor_index) {
+    auto& successors = d_successors[block];
+    successors.insert(std::make_pair(terminator, successor_index));
 
-    d_successors.insert(block);
-    block->d_predecessors.insert(this);
+    auto& predecessors = block->d_predecessors[this];
+    predecessors.insert(std::make_pair(terminator, successor_index));
 }
 
 void

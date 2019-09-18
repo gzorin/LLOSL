@@ -183,8 +183,6 @@ Cast::dump() const {
 PHI::PHI(const llvm::PHINode& ll_instruction, llvm::ArrayRef<Value *> operands, Block *block)
 : Instruction(Value::ValueKind::PHI, operands.size(), block)
 , d_ll_instruction(ll_instruction) {
-    std::cerr << __PRETTY_FUNCTION__ << ": " << operands.size() << " operands" << std::endl;
-
     for (size_t i = 0, n = operands.size(); i < n; ++i) {
         setOperandValue(i, operands[i]);
     }
@@ -192,6 +190,17 @@ PHI::PHI(const llvm::PHINode& ll_instruction, llvm::ArrayRef<Value *> operands, 
 
 const llvm::Value *
 PHI::getLLValue() const {
+    return &d_ll_instruction;
+}
+
+// Return
+Return::Return(const llvm::ReturnInst& ll_instruction, Block *block)
+: Instruction(Value::ValueKind::Return, 0, block)
+, d_ll_instruction(ll_instruction) {
+}
+
+const llvm::Value *
+Return::getLLValue() const {
     return &d_ll_instruction;
 }
 

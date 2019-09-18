@@ -13,6 +13,7 @@ class CallInst;
 class CastInst;
 class LoadInst;
 class PHINode;
+class ReturnInst;
 class StoreInst;
 } // End namespace llvm
 
@@ -234,6 +235,22 @@ public:
 private:
 
     const llvm::PHINode& d_ll_instruction;
+};
+
+class Return : public Instruction {
+public:
+
+    static bool classof(const Value* value) {
+        return value->getKind() == Value::ValueKind::Return;
+    }
+
+    Return(const llvm::ReturnInst&, Block * = nullptr);
+
+    const llvm::Value *getLLValue() const override;
+
+private:
+
+    const llvm::ReturnInst& d_ll_instruction;
 };
 
 } // End namespace llosl

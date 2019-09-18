@@ -28,6 +28,7 @@ public:
         MulClosureFloat,
         Cast,
         PHI,
+        Return,
         InstructionMax,
         Output,
         Function,

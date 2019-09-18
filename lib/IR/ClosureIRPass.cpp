@@ -79,6 +79,7 @@ public:
     Store                     *createStore(const llvm::StoreInst&);
     Cast                      *createCast(const llvm::CastInst&);
     PHI                       *createPHI(const llvm::PHINode&);
+    Return                    *createReturn(const llvm::ReturnInst&);
 
     //
     void insertValue(Value *);
@@ -385,6 +386,14 @@ ClosureIRPass::Context::createPHI(const llvm::PHINode& phi_node) {
     return instruction;
 }
 
+Return *
+ClosureIRPass::Context::createReturn(const llvm::ReturnInst& return_instruction) {
+    auto block = getBlock();
+    auto instruction = new Return(return_instruction, block);
+    insertValue(instruction);
+    return instruction;
+}
+
 void
 ClosureIRPass::Context::insertValue(Value *value) {
     insertValue(value->getLLValue(), value);
@@ -420,8 +429,6 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
     Context context(F,
         getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo(),
         getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
-
-    F.dump();
 
     // Determine closure storage:
     std::for_each(
@@ -521,6 +528,10 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                                 auto phi_node = llvm::cast<llvm::PHINode>(&ll_instruction);
                                 context.createPHI(*phi_node);
                             } break;
+                            case llvm::Instruction::Ret: {
+                                auto return_instruction = llvm::cast<llvm::ReturnInst>(&ll_instruction);
+                                context.createReturn(*return_instruction);
+                            } break;
                             default:
                                 break;
                             };
@@ -530,12 +541,10 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                 });
         });
 
-    // Construct the CFG:
     {
-        llvm::DenseMap<const llvm::BasicBlock *, llvm::DenseSet<const llvm::BasicBlock *> > cfg, cfg_back;
-
         struct Frame {
-            const llvm::BasicBlock *block = nullptr;
+            const llvm::BasicBlock *ll_block = nullptr;
+            Block *block = nullptr;
             bool back = false;
         };
 
@@ -549,119 +558,55 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
 
         std::for_each(
             F.begin(), F.end(),
-            [&stack, &color](const auto& block) -> void {
-                color[&block] = Color::White;
+            [&context, &stack, &color](const auto& ll_block) -> void {
+                color[&ll_block] = Color::White;
 
-                if (llvm::succ_begin(&block) == llvm::succ_end(&block)) {
-                    stack.push({ &block, false });
+                if (llvm::pred_begin(&ll_block) == llvm::pred_end(&ll_block)) {
+                    auto value = context.findValue(&ll_block);
+                    stack.push({ &ll_block, value ? llvm::cast<Block>(*value) : nullptr, false });
                 }
             });
 
-        // Duplicate the LLVM IR CFG:
         while (!stack.empty()) {
-            auto block = stack.top().block;
-            auto back = stack.top().back;
-
+            auto ll_block = stack.top().ll_block;
+            auto block    = stack.top().block;
+            auto back     = stack.top().back;
             stack.pop();
 
             if (!back) {
-                color[block] = Color::Grey;
+                color[ll_block] = Color::Grey;
 
-                std::for_each(
-                    llvm::pred_begin(block), llvm::pred_end(block),
-                    [&stack, &color, &cfg, &cfg_back, block](auto pred) -> void {
-                        cfg[pred].insert(block);
-                        cfg_back[block].insert(pred);
+                auto terminator = ll_block->getTerminator();
 
-                        if (color[pred] == Color::White) {
-                            stack.push({ pred, false });
-                        }
-                    });
+                for (unsigned i = 0, n = terminator->getNumSuccessors(); i < n; ++i) {
+                    auto ll_succ = terminator->getSuccessor(i);
+
+                    auto value = context.findValue(ll_succ);
+                    Block *succ = value ? llvm::cast<Block>(*value) : nullptr;
+
+                    if (succ) {
+                        block->insertSuccessor(succ, terminator, i);
+                    }
+
+                    if (color[ll_succ] == Color::White) {
+                        stack.push({ ll_succ, succ ? succ : block, false });
+                    }
+                }
             }
             else {
-                color[block] = Color::Black;
+                color[ll_block] = Color::Black;
             }
         }
 
-        // Remove blocks that have nothing to do with closures:
-        std::for_each(
-            context.blocks_begin(), context.blocks_end(),
-            [this, &context, &cfg, &cfg_back](const auto& scc) -> void {
-                std::for_each(
-                    scc.begin(), scc.end(),
-                    [this, &context, &cfg, &cfg_back](const auto ll_block) -> void {
-                        auto block = context.findValue(ll_block);
-                        if (block) {
-                            return;
-                        }
-
-                        // Link each of ll_block's successors to its predecessors, and
-                        // remove ll_block itself from cfg_back:
-                        const auto& succs = cfg[ll_block];
-                        std::for_each(
-                            succs.begin(), succs.end(),
-                            [&cfg_back, ll_block](auto succ) -> void {
-                                const auto& preds = cfg_back[ll_block];
-                                std::for_each(
-                                    preds.begin(), preds.end(),
-                                    [&cfg_back, succ](auto pred) -> void {
-                                        cfg_back[succ].insert(pred);
-                                    });
-
-                                cfg_back[succ].erase(ll_block);
-                            });
-
-                        //
-                        const auto& preds = cfg_back[ll_block];
-                        std::for_each(
-                            preds.begin(), preds.end(),
-                            [&cfg, ll_block](auto pred) -> void {
-                                const auto& succs = cfg[ll_block];
-                                std::for_each(
-                                    succs.begin(), succs.end(),
-                                    [&cfg, pred](auto succ) -> void {
-                                        cfg[pred].insert(succ);
-                                    });
-
-                                cfg[pred].erase(ll_block);
-                            });
-
-                        cfg.erase(ll_block);
-                        cfg_back.erase(ll_block);
-                    });
-            });
-
-        std::for_each(
-            cfg.begin(), cfg.end(),
-            [&context](const auto &tmp) -> void {
-                auto value = context.findValue(tmp.first);
-                assert(value);
-
-                auto block = llvm::cast<Block>(*value);
-                assert(block);
-
-                std::for_each(
-                    tmp.second.begin(), tmp.second.end(),
-                    [&context, block](auto ll_succ) -> void {
-                        auto value = context.findValue(ll_succ);
-                        assert(value);
-
-                        auto succ = llvm::cast<Block>(*value);
-                        assert(succ);
-
-                        block->insertSuccessor(succ);
-                    });
-            });
-
         std::for_each(
             context.function()->blocks_begin(), context.function()->blocks_end(),
-            [&cfg](const auto& block) -> void {
+            [](const auto& block) -> void {
                 std::cerr << block.getLLValue()->getName().str() << std::endl;
 
                 std::for_each(
                     block.succs_begin(), block.succs_end(),
-                    [](auto succ) -> void {
-                        std::cerr << "\t" << succ->getLLValue()->getName().str() << std::endl;
+                    [](const auto& succ) -> void {
+                        std::cerr << "\t" << succ.first->getLLValue()->getName().str() << std::endl;
                     });
             });
     }

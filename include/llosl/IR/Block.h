@@ -11,6 +11,7 @@
 
 namespace llvm {
 class BasicBlock;
+class TerminatorInst;
 } // end namespace llvm
 
 namespace llosl {
@@ -46,11 +47,13 @@ public:
     InstListType::const_iterator insts_begin() const { return d_insts.begin(); }
     InstListType::const_iterator insts_end()   const { return d_insts.end();   }
 
-    void insertSuccessor(Block *);
+    void insertSuccessor(Block *, const llvm::TerminatorInst *, unsigned);
     void eraseSuccessor(Block *);
 
     //
-    using SuccSetType = llvm::DenseSet<Block *>;
+    using TerminatorSetType = llvm::DenseSet<std::pair<const llvm::TerminatorInst *, unsigned> >;
+
+    using SuccSetType = llvm::DenseMap<Block *, TerminatorSetType>;
 
     SuccSetType& getSuccSet()             { return d_successors; }
     const SuccSetType& getSuccSet() const { return d_successors; }
@@ -61,7 +64,7 @@ public:
     SuccSetType::const_iterator succs_end()   const { return d_successors.end();   }
 
     //
-    using PredSetType = llvm::DenseSet<Block *>;
+    using PredSetType = llvm::DenseMap<Block *, TerminatorSetType>;
 
     PredSetType& getPredSet()             { return d_predecessors; }
     const PredSetType& getPredSet() const { return d_predecessors; }
