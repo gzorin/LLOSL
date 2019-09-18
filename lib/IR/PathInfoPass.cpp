@@ -18,6 +18,10 @@ void initializePathInfoPassPass(PassRegistry&);
 
 namespace llosl {
 
+PathInfo::PathInfo(std::shared_ptr<const ClosureFunction> ir)
+: d_ir(ir) {
+}
+
 llvm::Optional<const PathInfo::BlockInfo *>
 PathInfo::getInfoForBlock(const Block *block) const {
     auto it = d_block_info.find(block);
@@ -95,7 +99,7 @@ llvm::FunctionPass *createPathInfoPass() {
 bool PathInfoPass::runOnFunction(llvm::Function &F) {
     auto function = getAnalysis<ClosureIRPass>().getIR();
 
-    auto path_info = std::make_unique<PathInfo>();
+    auto path_info = std::make_unique<PathInfo>(function);
 
     // Reverse topological sort:
     std::list<const Block *> blocks;
@@ -128,7 +132,7 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
         auto back     = stack.top().back;
         stack.pop();
 
-        if (!back) {
+        if (!back && color[block] == Color::White) {
             color[block] = Color::Grey;
 
             stack.push({ block, true });
@@ -143,9 +147,8 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
                     }
                 });
         }
-        else {
+        else if (back) {
             color[block] = Color::Black;
-
             blocks.push_back(block);
         }
     }
@@ -154,8 +157,6 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
     std::for_each(
         blocks.begin(), blocks.end(),
         [&path_info](auto block) -> void {
-            std::cerr << block << " " << block->getLLValue()->getName().str() << std::endl;
-
             // Leaf block:
             if (block->succs_begin() == block->succs_end()) {
                 path_info->insertLeaf(block);

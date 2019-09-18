@@ -573,7 +573,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
             auto back     = stack.top().back;
             stack.pop();
 
-            if (!back) {
+            if (!back && color[ll_block] == Color::White) {
                 color[ll_block] = Color::Grey;
 
                 auto terminator = ll_block->getTerminator();
@@ -593,7 +593,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                     }
                 }
             }
-            else {
+            else if (back) {
                 color[ll_block] = Color::Black;
             }
         }
