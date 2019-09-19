@@ -7,6 +7,10 @@
 #include <memory>
 #include <variant>
 
+namespace llvm {
+class raw_ostream;
+} // End namespace llvm
+
 namespace llosl {
 
 class BXDFPass;
@@ -75,6 +79,8 @@ struct BXDFMulFloat {
     unsigned rhs_address;
 };
 
+void print(llvm::raw_ostream&, BXDFNodeRef);
+
 class BXDFInfo {
 public:
 
@@ -82,6 +88,8 @@ public:
         BXDFNodeRef ast;
         unsigned heap_size = 0;
     };
+
+    unsigned getPathCount() const { return d_bxdfs.size(); }
 
     const BXDF& getBXDFForPath(unsigned path_id) const { return d_bxdfs[path_id]; }
 

@@ -6,9 +6,11 @@
 
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include <iostream>
 #include <stack>
+#include <type_traits>
 
 namespace llvm {
 
@@ -17,6 +19,81 @@ void initializeBXDFPassPass(PassRegistry&);
 } // End namespace llvm
 
 namespace llosl {
+
+void
+print(llvm::raw_ostream& s, BXDFNodeRef node) {
+    struct Frame {
+        BXDFNodeRef node;
+        unsigned indent = 0;
+        bool back;
+    };
+
+    std::stack<Frame> stack;
+
+    stack.push({ node, 0, false });
+
+    while (!stack.empty()) {
+        auto [ node, indent, back ] = stack.top();
+        stack.pop();
+
+        if (!back) {
+            stack.push({ node, indent, true });
+
+            if (!node) {
+                s << "X ";
+                continue;
+            }
+
+            std::visit([&s, &stack](auto && node) -> void {
+                unsigned indent = 0;
+
+                using T = std::decay_t<decltype(node)>;
+
+                if constexpr (std::is_same_v<T, BXDFVoid>) {
+                    s << "? ";
+                }
+                else if constexpr (std::is_same_v<T, BXDFComponent>) {
+                    s << "(" << node.id << " [" << node.address << "]) ";
+                }
+                else if constexpr (std::is_same_v<T, BXDFWeightedComponent>) {
+                    s << "(" << node.id << " [" << node.address << "]) ";
+                }
+                else if constexpr (std::is_same_v<T, BXDFAdd>) {
+                    s << "(+ ";
+                    stack.push({ node.rhs, indent, false });
+                    stack.push({ node.lhs, indent, false });
+                }
+                else if constexpr (std::is_same_v<T, BXDFMulColor>) {
+                    s << "(*c ";
+                    stack.push({ node.lhs, indent, false });
+                }
+                else if constexpr (std::is_same_v<T, BXDFMulFloat>) {
+                    s << "(*f ";
+                    stack.push({ node.lhs, indent, false });
+                }
+            }, *node);
+        }
+        else {
+            if (!node) {
+                continue;
+            }
+
+            std::visit([&s, &stack](auto && node) -> void {
+                using T = std::decay_t<decltype(node)>;
+
+                if constexpr (std::is_same_v<T, BXDFAdd>) {
+                    s << ")";
+                }
+                else if constexpr (std::is_same_v<T, BXDFMulColor>) {
+                    s << "[" << node.rhs_address <<  "])";
+                }
+                else if constexpr (std::is_same_v<T, BXDFMulFloat>) {
+                    s << "[" << node.rhs_address <<  "])";
+                }
+            }, *node);
+        }
+    }
+}
 
 BXDFInfo::BXDFInfo(unsigned path_count)
 : d_bxdfs(path_count) {
@@ -148,6 +225,12 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
     }
 
     d_bxdf_info = std::move(bxdf_info);
+
+    for (unsigned i = 0, n = d_bxdf_info->getPathCount(); i < n; ++i) {
+        const auto& bxdf = d_bxdf_info->getBXDFForPath(i);
+        llosl::print(llvm::errs(), bxdf.ast);
+        llvm::errs() << "\n";
+    }
 
     return true;
 }
