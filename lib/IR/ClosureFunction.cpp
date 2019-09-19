@@ -23,6 +23,11 @@ ClosureFunction::~ClosureFunction() {
     }
 }
 
+void
+ClosureFunction::updateLLFunction(const llvm::Function &ll_function) const {
+    d_ll_function = &ll_function;
+}
+
 const llvm::Value *
 ClosureFunction::getLLValue() const {
     return d_ll_function;

@@ -6,6 +6,7 @@
 
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/ilist_node.h>
+#include <llvm/IR/ValueHandle.h>
 
 namespace llvm {
 class AllocaInst;
@@ -252,14 +253,14 @@ public:
         return value->getKind() == Value::ValueKind::Return;
     }
 
-    Return(const llvm::ReturnInst&, Block * = nullptr);
+    Return(llvm::ReturnInst&, Block * = nullptr);
 
     const llvm::Value *getLLValue() const override;
     void dump() const override;
 
 private:
 
-    const llvm::ReturnInst& d_ll_instruction;
+    llvm::TrackingVH<llvm::ReturnInst> d_ll_instruction;
 };
 
 } // End namespace llosl

@@ -14,7 +14,6 @@
 #include <llvm/IR/Instructions.h>
 
 #include <algorithm>
-#include <iostream>
 #include <list>
 #include <stack>
 
@@ -79,7 +78,7 @@ public:
     Store                     *createStore(const llvm::StoreInst&);
     Cast                      *createCast(const llvm::CastInst&);
     PHI                       *createPHI(const llvm::PHINode&);
-    Return                    *createReturn(const llvm::ReturnInst&);
+    Return                    *createReturn(llvm::ReturnInst&);
 
     //
     void insertValue(Value *);
@@ -387,7 +386,7 @@ ClosureIRPass::Context::createPHI(const llvm::PHINode& phi_node) {
 }
 
 Return *
-ClosureIRPass::Context::createReturn(const llvm::ReturnInst& return_instruction) {
+ClosureIRPass::Context::createReturn(llvm::ReturnInst& return_instruction) {
     auto block = getBlock();
     auto instruction = new Return(return_instruction, block);
     insertValue(instruction);
@@ -485,7 +484,7 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
 
                     std::for_each(
                         block->begin(), block->end(),
-                        [this, &context](const auto& ll_instruction) -> void {
+                        [this, &context](auto& ll_instruction) -> void {
                             switch (ll_instruction.getOpcode()) {
                             case llvm::Instruction::Call: {
                                 auto call_instruction = llvm::cast<llvm::CallInst>(&ll_instruction);
@@ -597,20 +596,6 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                 color[ll_block] = Color::Black;
             }
         }
-
-#if 0
-        std::for_each(
-            context.function()->blocks_begin(), context.function()->blocks_end(),
-            [](const auto& block) -> void {
-                std::cerr << block.getLLValue()->getName().str() << std::endl;
-
-                std::for_each(
-                    block.succs_begin(), block.succs_end(),
-                    [](const auto& succ) -> void {
-                        std::cerr << "\t" << succ.first->getLLValue()->getName().str() << std::endl;
-                    });
-            });
-#endif
     }
 
     auto function = context.endFunction();

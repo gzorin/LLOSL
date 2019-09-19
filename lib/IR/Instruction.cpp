@@ -204,14 +204,14 @@ PHI::getLLValue() const {
 }
 
 // Return
-Return::Return(const llvm::ReturnInst& ll_instruction, Block *block)
+Return::Return(llvm::ReturnInst& ll_instruction, Block *block)
 : Instruction(Value::ValueKind::Return, 0, block)
-, d_ll_instruction(ll_instruction) {
+, d_ll_instruction(&ll_instruction) {
 }
 
 const llvm::Value *
 Return::getLLValue() const {
-    return &d_ll_instruction;
+    return (const llvm::Value *)d_ll_instruction;
 }
 
 void
