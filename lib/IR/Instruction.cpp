@@ -102,6 +102,11 @@ AllocateComponent::getClosureID() const {
     return llvm::dyn_cast<llvm::ConstantInt>(d_ll_instruction.getArgOperand(1))->getSExtValue();
 }
 
+unsigned
+AllocateComponent::getClosureSize() const {
+    return llvm::dyn_cast<llvm::ConstantInt>(d_ll_instruction.getArgOperand(2))->getSExtValue();
+}
+
 // AllocateWeightedComponent
 AllocateWeightedComponent::AllocateWeightedComponent(const llvm::CallInst& ll_instruction, Block *block)
 : Instruction(Value::ValueKind::AllocateWeightedComponent, 0, block)
@@ -116,6 +121,11 @@ AllocateWeightedComponent::getLLValue() const {
 unsigned
 AllocateWeightedComponent::getClosureID() const {
     return llvm::dyn_cast<llvm::ConstantInt>(d_ll_instruction.getArgOperand(1))->getSExtValue();
+}
+
+unsigned
+AllocateWeightedComponent::getClosureSize() const {
+    return llvm::dyn_cast<llvm::ConstantInt>(d_ll_instruction.getArgOperand(2))->getSExtValue();
 }
 
 // AddClosureClosure
@@ -202,6 +212,11 @@ Return::Return(const llvm::ReturnInst& ll_instruction, Block *block)
 const llvm::Value *
 Return::getLLValue() const {
     return &d_ll_instruction;
+}
+
+void
+Return::dump() const {
+    llvm::errs() << "Return\n";
 }
 
 } // End namespace llosl

@@ -1,6 +1,7 @@
 #include "BuilderImpl.h"
 #include "LLOSLContextImpl.h"
 
+#include <llosl/IR/BXDFPass.h>
 #include <llosl/IR/ClosureIRPass.h>
 #include <llosl/IR/InstrumentationPass.h>
 #include <llosl/IR/PathInfoPass.h>
@@ -73,11 +74,13 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     auto closure_ir = new ClosureIRPass();
     auto path_info = new PathInfoPass();
     auto instrumentation = new InstrumentationPass();
+    auto bxdf = new BXDFPass();
 
     auto fpm = std::make_unique<llvm::legacy::FunctionPassManager>(d_module.get());
     fpm->add(closure_ir);
     fpm->add(path_info);
     fpm->add(instrumentation);
+    fpm->add(bxdf);
     fpm->run(*main_function);
 
     main_function = d_module->getFunction(main_function_name);

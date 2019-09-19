@@ -138,7 +138,7 @@ bool InstrumentationPass::runOnFunction(llvm::Function &F) {
                 });
         });
 
-    //instrumented_function->dump();
+    instrumented_function->dump();
 
     return true;
 }

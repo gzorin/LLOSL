@@ -93,6 +93,9 @@ public:
 
     unsigned getLocation() const { return d_location; }
 
+    Value *getOperand()             { return &d_rhs; }
+    const Value *getOperand() const { return &d_rhs; }
+
     const llvm::Value *getLLValue() const override;
     void dump() const override;
 
@@ -113,6 +116,7 @@ public:
     AllocateComponent(const llvm::CallInst&, Block * = nullptr);
 
     unsigned getClosureID() const;
+    unsigned getClosureSize() const;
 
     const llvm::Value *getLLValue() const override;
 
@@ -131,6 +135,7 @@ public:
     AllocateWeightedComponent(const llvm::CallInst&, Block * = nullptr);
 
     unsigned getClosureID() const;
+    unsigned getClosureSize() const;
 
     const llvm::Value *getLLValue() const override;
 
@@ -212,6 +217,9 @@ public:
 
     Cast(const llvm::CastInst&, Value&, Block * = nullptr);
 
+    Value *getOperand()             { return &d_rhs; }
+    const Value *getOperand() const { return &d_rhs; }
+
     const llvm::Value *getLLValue() const override;
     void dump() const override;
 
@@ -247,6 +255,7 @@ public:
     Return(const llvm::ReturnInst&, Block * = nullptr);
 
     const llvm::Value *getLLValue() const override;
+    void dump() const override;
 
 private:
 
