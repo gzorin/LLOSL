@@ -5,6 +5,7 @@
 #include <llvm/Pass.h>
 
 #include <memory>
+#include <stack>
 #include <variant>
 
 namespace llvm {
@@ -15,92 +16,173 @@ namespace llosl {
 
 class BXDFPass;
 
-struct BXDFVoid;
-struct BXDFComponent;
-struct BXDFWeightedComponent;
-struct BXDFAdd;
-struct BXDFMulColor;
-struct BXDFMulFloat;
+class BXDF {
+public:
 
-using BXDFNode = std::variant<BXDFVoid, BXDFComponent, BXDFWeightedComponent, BXDFAdd, BXDFMulColor, BXDFMulFloat>;
-using BXDFNodeRef = std::shared_ptr<BXDFNode>;
+    struct Void;
+    struct Component;
+    struct WeightedComponent;
+    struct Add;
+    struct MulColor;
+    struct MulFloat;
 
-struct BXDFVoid {
+    using Node = std::variant<Void, Component, WeightedComponent, Add, MulColor, MulFloat>;
+    using NodeRef = std::shared_ptr<Node>;
+
+    struct Void {
+    };
+
+    struct Component {
+        Component(unsigned id, unsigned address)
+        : id(id)
+        , address(address) {
+        }
+
+        unsigned id;
+        unsigned address;
+    };
+
+    struct WeightedComponent {
+        WeightedComponent(unsigned id, unsigned address, unsigned weight_address)
+        : id(id)
+        , address(address)
+        , weight_address(weight_address) {
+        }
+
+        unsigned id;
+        unsigned address;
+        unsigned weight_address;
+    };
+
+    struct Add {
+        Add(NodeRef lhs, NodeRef rhs)
+        : lhs(lhs)
+        , rhs(rhs) {
+        }
+
+        NodeRef lhs, rhs;
+    };
+
+    struct MulColor {
+        MulColor(NodeRef lhs, unsigned rhs_address)
+        : lhs(lhs)
+        , rhs_address(rhs_address) {
+        }
+
+        NodeRef lhs;
+        unsigned rhs_address;
+    };
+
+    struct MulFloat {
+        MulFloat(NodeRef lhs, unsigned rhs_address)
+        : lhs(lhs)
+        , rhs_address(rhs_address) {
+        }
+
+        NodeRef lhs;
+        unsigned rhs_address;
+    };
+
+    //
+    template<typename Visitor>
+    static void visit(NodeRef, Visitor&);
+
+    template<typename Visitor, typename BackVisitor>
+    static void visit(NodeRef, Visitor&, BackVisitor&);
+
+    //
+    static void print(llvm::raw_ostream&, NodeRef);
+
+    //
+    using Encoding = std::basic_string<uint8_t>;
+
+    static Encoding encode(NodeRef);
+    static NodeRef  decode(Encoding);
+
+    NodeRef ast;
+    unsigned heap_size = 0;
 };
 
-struct BXDFComponent {
-    BXDFComponent(unsigned id, unsigned address)
-    : id(id)
-    , address(address) {
+template<typename Visitor>
+void
+BXDF::visit(NodeRef node, Visitor& v) {
+    std::stack<NodeRef> stack;
+
+    stack.push(node);
+
+    while (!stack.empty()) {
+        auto ref = stack.top();
+        stack.pop();
+
+        std::visit([&v, &stack, ref](const auto& node) -> void {
+            v(ref, node);
+
+            using T = std::decay_t<decltype(node)>;
+
+            if constexpr (std::is_same_v<T, Add>) {
+                stack.push(node.rhs);
+                stack.push(node.lhs);
+            }
+            else if constexpr (std::is_same_v<T, MulColor>) {
+                stack.push(node.lhs);
+            }
+            else if constexpr (std::is_same_v<T, MulFloat>) {
+                stack.push(node.lhs);
+            }
+        },
+        *ref);
     }
+}
 
-    unsigned id;
-    unsigned address;
-};
+template<typename Visitor, typename BackVisitor>
+void
+BXDF::visit(NodeRef node, Visitor& v, BackVisitor& bv) {
+    struct Frame {
+        NodeRef node;
+        bool back = false;
+    };
 
-struct BXDFWeightedComponent {
-    BXDFWeightedComponent(unsigned id, unsigned address, unsigned weight_address)
-    : id(id)
-    , address(address)
-    , weight_address(weight_address) {
+    std::stack<Frame> stack;
+
+    stack.push({ node, false });
+
+    while (!stack.empty()) {
+        auto ref = stack.top().node;
+        auto back = stack.top().back;
+        stack.pop();
+
+        if (!back) {
+            stack.push({ ref, true });
+
+            std::visit([&v, &stack, ref](const auto& node) -> void {
+                v(ref, node);
+
+                using T = std::decay_t<decltype(node)>;
+
+                if constexpr (std::is_same_v<T, Add>) {
+                    stack.push({ node.rhs, false });
+                    stack.push({ node.lhs, false });
+                }
+                else if constexpr (std::is_same_v<T, MulColor>) {
+                    stack.push({ node.lhs, false });
+                }
+                else if constexpr (std::is_same_v<T, MulFloat>) {
+                    stack.push({ node.lhs, false });
+                }
+            },
+            *ref);
+        }
+        else {
+            std::visit([&bv, &stack, ref](const auto& node) -> void {
+                bv(ref, node);
+            },
+            *ref);
+        }
     }
-
-    unsigned id;
-    unsigned address;
-    unsigned weight_address;
-};
-
-struct BXDFAdd {
-    BXDFAdd(BXDFNodeRef lhs, BXDFNodeRef rhs)
-    : lhs(lhs)
-    , rhs(rhs) {
-    }
-
-    BXDFNodeRef lhs, rhs;
-};
-
-struct BXDFMulColor {
-    BXDFMulColor(BXDFNodeRef lhs, unsigned rhs_address)
-    : lhs(lhs)
-    , rhs_address(rhs_address) {
-    }
-
-    BXDFNodeRef lhs;
-    unsigned rhs_address;
-};
-
-struct BXDFMulFloat {
-    BXDFMulFloat(BXDFNodeRef lhs, unsigned rhs_address)
-    : lhs(lhs)
-    , rhs_address(rhs_address) {
-    }
-
-    BXDFNodeRef lhs;
-    unsigned rhs_address;
-};
-
-void print(llvm::raw_ostream&, BXDFNodeRef);
-
-using BXDFEncoding = std::basic_string<uint8_t>;
-
-BXDFEncoding encodeBXDF(BXDFNodeRef);
-BXDFNodeRef  decodeBXDF(BXDFEncoding);
-
-// Encoding
-//
-// 3 bits for kind of node
-//
-// Component: 2 bytes (kind | id, address)
-// Weighted component: 2 bytes (kind | id, address)
-//
+}
 
 class BXDFInfo {
 public:
-
-    struct BXDF {
-        BXDFNodeRef ast;
-        unsigned heap_size = 0;
-    };
 
     unsigned getPathCount() const { return d_bxdfs.size(); }
 
@@ -112,7 +194,7 @@ private:
 
     BXDFInfo(unsigned);
 
-    void addBXDFForPath(unsigned, BXDFNodeRef, unsigned);
+    void addBXDFForPath(unsigned, BXDF::NodeRef, unsigned);
 
     std::vector<BXDF> d_bxdfs;
     unsigned d_max_heap_size = 0;

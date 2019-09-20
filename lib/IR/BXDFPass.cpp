@@ -13,118 +13,71 @@
 #include <type_traits>
 #include <unordered_map>
 
-namespace llvm {
-
-void initializeBXDFPassPass(PassRegistry&);
-
-} // End namespace llvm
-
 namespace llosl {
 
 void
-print(llvm::raw_ostream& s, BXDFNodeRef node) {
-    struct Frame {
-        BXDFNodeRef node;
-        unsigned indent = 0;
-        bool back;
+BXDF::print(llvm::raw_ostream& s, BXDF::NodeRef node) {
+    if (!node) {
+        s << "X";
+        return;
+    }
+
+    struct Print {
+        llvm::raw_ostream& s;
+
+        void operator()(NodeRef, const Void&) {
+            s << "?";
+        }
+
+        void operator()(NodeRef, const Component& node) {
+            s << node.id << "[" << node.address << "]";
+        }
+
+        void operator()(NodeRef, const WeightedComponent& node) {
+            s << "w*" << node.id << "[" << node.address << "]";
+        }
+
+        void operator()(NodeRef, const Add& node) {
+            s << "(+";
+        }
+
+        void operator()(NodeRef, const MulColor& node) {
+            s << "(c*";
+        }
+
+        void operator()(NodeRef, const MulFloat& node) {
+            s << "(f*";
+        }
     };
 
-    std::stack<Frame> stack;
+    struct PrintBack {
+        llvm::raw_ostream& s;
 
-    stack.push({ node, 0, false });
-
-    while (!stack.empty()) {
-        auto [ node, indent, back ] = stack.top();
-        stack.pop();
-
-        if (!back) {
-            stack.push({ node, indent, true });
-
-            if (!node) {
-                s << "X ";
-                continue;
-            }
-
-            std::visit([&s, &stack](auto && node) -> void {
-                unsigned indent = 0;
-
-                using T = std::decay_t<decltype(node)>;
-
-                if constexpr (std::is_same_v<T, BXDFVoid>) {
-                    s << "? ";
-                }
-                else if constexpr (std::is_same_v<T, BXDFComponent>) {
-                    s << "(" << node.id << " [" << node.address << "]) ";
-                }
-                else if constexpr (std::is_same_v<T, BXDFWeightedComponent>) {
-                    s << "(" << node.id << " [" << node.address << "]) ";
-                }
-                else if constexpr (std::is_same_v<T, BXDFAdd>) {
-                    s << "(+ ";
-                    stack.push({ node.rhs, indent, false });
-                    stack.push({ node.lhs, indent, false });
-                }
-                else if constexpr (std::is_same_v<T, BXDFMulColor>) {
-                    s << "(*c ";
-                    stack.push({ node.lhs, indent, false });
-                }
-                else if constexpr (std::is_same_v<T, BXDFMulFloat>) {
-                    s << "(*f ";
-                    stack.push({ node.lhs, indent, false });
-                }
-            }, *node);
+        void operator()(NodeRef, const Void&) {
         }
-        else {
-            if (!node) {
-                continue;
-            }
 
-            std::visit([&s, &stack](auto && node) -> void {
-                using T = std::decay_t<decltype(node)>;
-
-                if constexpr (std::is_same_v<T, BXDFAdd>) {
-                    s << ")";
-                }
-                else if constexpr (std::is_same_v<T, BXDFMulColor>) {
-                    s << "[" << node.rhs_address <<  "])";
-                }
-                else if constexpr (std::is_same_v<T, BXDFMulFloat>) {
-                    s << "[" << node.rhs_address <<  "])";
-                }
-            }, *node);
+        void operator()(NodeRef, const Component& node) {
         }
-    }
-}
 
-template<typename Visitor>
-void
-visitBXDF(BXDFNodeRef node, Visitor& v) {
-    std::stack<BXDFNodeRef> stack;
+        void operator()(NodeRef, const WeightedComponent& node) {
+        }
 
-    stack.push(node);
+        void operator()(NodeRef, const Add& node) {
+            s << ")";
+        }
 
-    while (!stack.empty()) {
-        auto ref = stack.top();
-        stack.pop();
+        void operator()(NodeRef, const MulColor& node) {
+            s << ")";
+        }
 
-        std::visit([&v, &stack, ref](const auto& node) -> void {
-            v(ref, node);
+        void operator()(NodeRef, const MulFloat& node) {
+            s << ")";
+        }
+    };
 
-            using T = std::decay_t<decltype(node)>;
-
-            if constexpr (std::is_same_v<T, BXDFAdd>) {
-                stack.push(node.rhs);
-                stack.push(node.lhs);
-            }
-            else if constexpr (std::is_same_v<T, BXDFMulColor>) {
-                stack.push(node.lhs);
-            }
-            else if constexpr (std::is_same_v<T, BXDFMulFloat>) {
-                stack.push(node.lhs);
-            }
-        },
-        *ref);
-    }
+    Print     v  = { s };
+    PrintBack bv = { s };
+    visit(node, v, bv);
 }
 
 enum class Opcode : uint8_t {
@@ -136,130 +89,150 @@ enum class Opcode : uint8_t {
     MulFloat          = 5 << 5
 };
 
-BXDFEncoding
-encodeBXDF(BXDFNodeRef node) {
+BXDF::Encoding
+BXDF::encode(BXDF::NodeRef node) {
     if (!node) {
-        return BXDFEncoding();
+        return Encoding();
     }
 
     // Allocator
     struct Allocate {
         std::size_t size = 0;
-        std::unordered_map<BXDFNodeRef, std::size_t> position;
+        std::unordered_map<NodeRef, std::size_t> position;
 
-        void operator()(BXDFNodeRef, const BXDFVoid& node) {
+        void operator()(NodeRef, const Void& node) {
         }
 
-        void operator()(BXDFNodeRef ref, const BXDFComponent& node) {
+        void operator()(NodeRef ref, const Component& node) {
             position[ref] = size;
             size += 2;
         }
 
-        void operator()(BXDFNodeRef ref, const BXDFWeightedComponent& node) {
+        void operator()(NodeRef ref, const WeightedComponent& node) {
             position[ref] = size;
             size += 2;
         }
 
-        void operator()(BXDFNodeRef ref, const BXDFAdd& node) {
+        void operator()(NodeRef ref, const Add& node) {
             position[ref] = size;
             size += 1;
         }
 
-        void operator()(BXDFNodeRef ref, const BXDFMulColor& node) {
+        void operator()(NodeRef ref, const MulColor& node) {
             position[ref] = size;
             size += 1;
         }
 
-        void operator()(BXDFNodeRef ref, const BXDFMulFloat& node) {
+        void operator()(NodeRef ref, const MulFloat& node) {
             position[ref] = size;
             size += 1;
         }
     };
 
     Allocate allocate;
-    visitBXDF(node, allocate);
-    BXDFEncoding encoding(allocate.size, 0);
+    visit(node, allocate);
+    Encoding encoding(allocate.size, 0);
 
     struct Encoder {
-        BXDFEncoding::iterator it;
-        std::unordered_map<BXDFNodeRef, std::size_t> position;
+        Encoding::iterator it;
+        std::unordered_map<NodeRef, std::size_t> position;
 
-        void operator()(BXDFNodeRef, const BXDFVoid& node) {
+        void operator()(NodeRef, const Void& node) {
         }
 
-        void operator()(BXDFNodeRef, const BXDFComponent& node) {
+        void operator()(NodeRef, const Component& node) {
             *it++ = (uint8_t)Opcode::Component | ((uint8_t)node.id & 0x1F);
             *it++ = (uint8_t)node.address;
         }
 
-        void operator()(BXDFNodeRef, const BXDFWeightedComponent& node) {
+        void operator()(NodeRef, const WeightedComponent& node) {
             *it++ = (uint8_t)Opcode::WeightedComponent | ((uint8_t)node.id & 0x1F);
             *it++ = (uint8_t)node.address;
         }
 
-        void operator()(BXDFNodeRef, const BXDFAdd& node) {
+        void operator()(NodeRef, const Add& node) {
             auto rhs_position = position[node.rhs];
             *it++ = (uint8_t)Opcode::Add | ((uint8_t)rhs_position & 0x1F);
         }
 
-        void operator()(BXDFNodeRef, const BXDFMulColor& node) {
+        void operator()(NodeRef, const MulColor& node) {
             *it++ = (uint8_t)Opcode::MulColor | ((uint8_t)(node.rhs_address >> 2) & 0x1F);
         }
 
-        void operator()(BXDFNodeRef, const BXDFMulFloat& node) {
+        void operator()(NodeRef, const MulFloat& node) {
             *it++ = (uint8_t)Opcode::MulFloat | ((uint8_t)(node.rhs_address >> 2) & 0x1F);
         }
     };
 
     Encoder encode = { encoding.begin(), std::move(allocate.position) };
-    visitBXDF(node, encode);
+    visit(node, encode);
 
     return encoding;
 }
 
-BXDFNodeRef
-decodeDetail(BXDFEncoding::const_iterator it_begin, BXDFEncoding::const_iterator it) {
-    auto code = *it++;
-    Opcode opcode = (Opcode)(code & 0xE0);
-    auto operand = (unsigned)(code & 0x1F);
+BXDF::NodeRef
+BXDF::decode(BXDF::Encoding encoding) {
+    auto it_begin = encoding.begin();
 
-    switch (opcode) {
-    case Opcode::Void: {
-        return std::shared_ptr<BXDFNode>();
-    } break;
-    case Opcode::Component: {
-        return std::make_shared<BXDFNode>(BXDFComponent(operand, *it++));
-    } break;
-    case Opcode::WeightedComponent: {
-        return std::make_shared<BXDFNode>(BXDFWeightedComponent(operand, *it++, 0));
-    } break;
-    case Opcode::Add: {
-        return std::make_shared<BXDFNode>(BXDFAdd(decodeDetail(it_begin, it), decodeDetail(it_begin, it_begin + operand)));
-    } break;
-    case Opcode::MulColor: {
-        return std::make_shared<BXDFNode>(BXDFMulColor(decodeDetail(it_begin, it), operand << 2));
-    } break;
-    case Opcode::MulFloat: {
-        return std::make_shared<BXDFNode>(BXDFMulFloat(decodeDetail(it_begin, it), operand << 2));
-    } break;
-    }
+    std::function<NodeRef(Encoding::const_iterator)> detail =
+    [it_begin, &detail](Encoding::const_iterator it) -> NodeRef {
+        auto code = *it++;
+        Opcode opcode = (Opcode)(code & 0xE0);
+        auto operand = (unsigned)(code & 0x1F);
+
+        switch (opcode) {
+        case Opcode::Void: {
+            return std::shared_ptr<Node>();
+        } break;
+        case Opcode::Component: {
+            return std::make_shared<Node>(
+                Component(operand, *it++));
+        } break;
+        case Opcode::WeightedComponent: {
+            return std::make_shared<Node>(
+                WeightedComponent(operand, *it++, 0));
+        } break;
+        case Opcode::Add: {
+            return std::make_shared<Node>(
+                Add(detail(it),
+                    detail(it_begin + operand)));
+        } break;
+        case Opcode::MulColor: {
+            return std::make_shared<Node>(
+                MulColor(detail(it), operand << 2));
+        } break;
+        case Opcode::MulFloat: {
+            return std::make_shared<Node>(
+                MulFloat(detail(it), operand << 2));
+        } break;
+        }
+    };
+
+    return detail(encoding.begin());
 }
 
-BXDFNodeRef
-decodeBXDF(BXDFEncoding encoding) {
-    return decodeDetail(encoding.begin(), encoding.begin());
-}
-
+// BXDFInfo:
 BXDFInfo::BXDFInfo(unsigned path_count)
 : d_bxdfs(path_count) {
 }
 
 void
-BXDFInfo::addBXDFForPath(unsigned path_id, BXDFNodeRef ast, unsigned heap_size) {
+BXDFInfo::addBXDFForPath(unsigned path_id, BXDF::NodeRef ast, unsigned heap_size) {
     d_bxdfs[path_id] = { ast, heap_size };
     d_max_heap_size = std::max(d_max_heap_size, heap_size);
 }
 
+} // End namespace llosl
+
+namespace llvm {
+
+void initializeBXDFPassPass(PassRegistry&);
+
+} // End namespace llvm
+
+namespace llosl {
+
+// BXDFPass:
 BXDFPass::BXDFPass() : FunctionPass(ID) {
     llvm::initializeBXDFPassPass(*llvm::PassRegistry::getPassRegistry());
 }
@@ -297,8 +270,8 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
         const Block *block = nullptr;
 
         unsigned path_id = 0;
-        std::vector<BXDFNodeRef> storage;
-        llvm::DenseMap<const Value *, BXDFNodeRef> values;
+        std::vector<BXDF::NodeRef> storage;
+        llvm::DenseMap<const Value *, BXDF::NodeRef> values;
         unsigned heap_size = 0;
     };
 
@@ -317,7 +290,7 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
             [path_info, &bxdf_info, &frame](const auto& inst) -> void {
                 switch(inst.getKind()) {
                 case Value::ValueKind::Alloca: {
-                    frame.values[&inst] = std::make_shared<BXDFNode>(BXDFVoid());
+                    frame.values[&inst] = std::make_shared<BXDF::Node>(BXDF::Void());
                 } break;
                 case Value::ValueKind::Load: {
                     auto load_instruction = llvm::cast<Load>(&inst);
@@ -330,33 +303,33 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
                 case Value::ValueKind::AllocateComponent: {
                     auto component_instruction = llvm::cast<AllocateComponent>(&inst);
                     auto address = frame.allocate(component_instruction->getClosureSize());
-                    frame.values[&inst] = std::make_shared<BXDFNode>(
-                        BXDFComponent(component_instruction->getClosureID(),
+                    frame.values[&inst] = std::make_shared<BXDF::Node>(
+                        BXDF::Component(component_instruction->getClosureID(),
                                       address));
                 } break;
                 case Value::ValueKind::AllocateWeightedComponent: {
                     auto component_instruction = llvm::cast<AllocateWeightedComponent>(&inst);
                     auto component_address = frame.allocate(component_instruction->getClosureSize());
-                    frame.values[&inst] = std::make_shared<BXDFNode>(
-                        BXDFWeightedComponent(component_instruction->getClosureID(),
+                    frame.values[&inst] = std::make_shared<BXDF::Node>(
+                        BXDF::WeightedComponent(component_instruction->getClosureID(),
                                               component_address, 0));
                 } break;
                 case Value::ValueKind::AddClosureClosure: {
                     auto add_instruction = llvm::cast<AddClosureClosure>(&inst);
-                    frame.values[&inst] = std::make_shared<BXDFNode>(
-                        BXDFAdd(frame.values[add_instruction->getLHS()], frame.values[add_instruction->getRHS()]));
+                    frame.values[&inst] = std::make_shared<BXDF::Node>(
+                        BXDF::Add(frame.values[add_instruction->getLHS()], frame.values[add_instruction->getRHS()]));
                 } break;
                 case Value::ValueKind::MulClosureColor: {
                     auto mul_instruction = llvm::cast<MulClosureColor>(&inst);
                     auto address = frame.allocate(12);
-                    frame.values[&inst] = std::make_shared<BXDFNode>(
-                        BXDFMulColor(frame.values[mul_instruction->getLHS()], address));
+                    frame.values[&inst] = std::make_shared<BXDF::Node>(
+                        BXDF::MulColor(frame.values[mul_instruction->getLHS()], address));
                 } break;
                 case Value::ValueKind::MulClosureFloat: {
                     auto mul_instruction = llvm::cast<MulClosureFloat>(&inst);
                     auto address = frame.allocate(4);
-                    frame.values[&inst] = std::make_shared<BXDFNode>(
-                        BXDFMulFloat(frame.values[mul_instruction->getLHS()], address));
+                    frame.values[&inst] = std::make_shared<BXDF::Node>(
+                        BXDF::MulFloat(frame.values[mul_instruction->getLHS()], address));
                 } break;
                 case Value::ValueKind::Cast: {
                     auto cast_instruction = llvm::cast<Cast>(&inst);
@@ -386,10 +359,10 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
 
         const auto& bxdf = d_bxdf_info->getBXDFForPath(i);
         llvm::errs() << "\t";
-        llosl::print(llvm::errs(), bxdf.ast);
+        BXDF::print(llvm::errs(), bxdf.ast);
         llvm::errs() << "\n";
 
-        auto encoding = encodeBXDF(bxdf.ast);
+        auto encoding = BXDF::encode(bxdf.ast);
 
         llvm::errs() << "\t";
         for (auto byte : encoding) {
@@ -397,9 +370,9 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
         }
         llvm::errs() << "\n";
 
-        auto laundered = decodeBXDF(encoding);
+        auto laundered = BXDF::decode(encoding);
         llvm::errs() << "\t";
-        llosl::print(llvm::errs(), laundered);
+        BXDF::print(llvm::errs(), laundered);
         llvm::errs() << "\n";
     }
 
