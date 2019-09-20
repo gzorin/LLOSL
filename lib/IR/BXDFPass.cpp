@@ -131,7 +131,7 @@ BXDF::encode(BXDF::NodeRef node) {
 
     Allocate allocate;
     visit(node, allocate);
-    Encoding encoding(allocate.size, 0);
+    Encoding encoding(allocate.size + 1, 0);
 
     struct Encoder {
         Encoding::iterator it;
@@ -164,7 +164,10 @@ BXDF::encode(BXDF::NodeRef node) {
         }
     };
 
-    Encoder encode = { encoding.begin(), std::move(allocate.position) };
+    auto it = encoding.begin();
+    *it++ = 5;
+
+    Encoder encode = { it, std::move(allocate.position) };
     visit(node, encode);
 
     return encoding;
@@ -172,7 +175,7 @@ BXDF::encode(BXDF::NodeRef node) {
 
 BXDF::NodeRef
 BXDF::decode(BXDF::Encoding encoding) {
-    auto it_begin = encoding.begin();
+    auto it_begin = encoding.begin() + 1;
 
     std::function<NodeRef(Encoding::const_iterator)> detail =
     [it_begin, &detail](Encoding::const_iterator it) -> NodeRef {
@@ -208,7 +211,7 @@ BXDF::decode(BXDF::Encoding encoding) {
         }
     };
 
-    return detail(encoding.begin());
+    return detail(it_begin);
 }
 
 // BXDFInfo:
