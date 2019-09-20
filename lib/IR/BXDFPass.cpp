@@ -34,7 +34,7 @@ BXDF::print(llvm::raw_ostream& s, BXDF::NodeRef node) {
         }
 
         void operator()(NodeRef, const WeightedComponent& node) {
-            s << "w*" << node.id << "[" << node.address << "]";
+            s << node.id << "[" << node.address << "]*w";
         }
 
         void operator()(NodeRef, const Add& node) {
@@ -42,11 +42,11 @@ BXDF::print(llvm::raw_ostream& s, BXDF::NodeRef node) {
         }
 
         void operator()(NodeRef, const MulColor& node) {
-            s << "(c*";
+            s << "(";
         }
 
         void operator()(NodeRef, const MulFloat& node) {
-            s << "(f*";
+            s << "(";
         }
     };
 
@@ -67,11 +67,11 @@ BXDF::print(llvm::raw_ostream& s, BXDF::NodeRef node) {
         }
 
         void operator()(NodeRef, const MulColor& node) {
-            s << ")";
+            s << "*c[" << node.rhs_address << "])";
         }
 
         void operator()(NodeRef, const MulFloat& node) {
-            s << ")";
+            s << "*f[" << node.rhs_address << "])";
         }
     };
 
