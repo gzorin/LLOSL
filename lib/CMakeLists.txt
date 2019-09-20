@@ -2,6 +2,7 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_library(LLOSL STATIC
   Builder.cpp
+  BXDFScope.cpp
   LLOSLContext.cpp
   OSLErrorHandler.cpp
   ShaderGroup.cpp)

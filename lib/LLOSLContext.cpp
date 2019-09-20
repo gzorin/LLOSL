@@ -1,4 +1,5 @@
 #include <llosl/Builder.h>
+#include <llosl/BXDFScope.h>
 #include <llosl/LLOSLContext.h>
 #include <llosl/ShaderGroup.h>
 
@@ -16,7 +17,7 @@ namespace llosl {
 // Implementation:
 LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
     : d_llcontext(llcontext)
-    , d_shading_system(new OSL::ShadingSystem(this, nullptr, &d_osl_error_handler)) 
+    , d_shading_system(new OSL::ShadingSystem(this, nullptr, &d_osl_error_handler))
     , d_shading_context(d_shading_system->get_context(d_shading_system->create_thread_info())) {
     d_shading_system->attribute("lockgeom", 0);
     d_shading_system->attribute("optimize", 0);
@@ -28,6 +29,7 @@ LLOSLContextImpl::~LLOSLContextImpl() {
     assert(!d_builder);
 
     d_shader_groups.clear();
+    d_bxdf_scopes.clear();
 }
 
 void
@@ -46,7 +48,7 @@ LLOSLContextImpl::registerClosures() {
 	REFRACTION_ID,
 	TRANSPARENT_ID,
     };
-    
+
     struct EmptyParams      { };
     struct DiffuseParams    { OSL::Vec3 N; };
     struct OrenNayarParams  { OSL::Vec3 N; float sigma; };
@@ -158,6 +160,16 @@ LLOSLContextImpl::addShaderGroup(ShaderGroup *shader_group) {
 void
 LLOSLContextImpl::removeShaderGroup(ShaderGroup *shader_group) {
     d_shader_groups.remove(shader_group);
+}
+
+void
+LLOSLContextImpl::addBXDFScope(BXDFScope *bxdf_scope) {
+    d_bxdf_scopes.push_back(bxdf_scope);
+}
+
+void
+LLOSLContextImpl::removeBXDFScope(BXDFScope *bxdf_scope) {
+    d_bxdf_scopes.remove(bxdf_scope);
 }
 
 // Interface:

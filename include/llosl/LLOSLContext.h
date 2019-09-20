@@ -15,6 +15,7 @@ class LLVMContext;
 namespace llosl {
 
 class Builder;
+class BXDFScope;
 class LLOSLContextImpl;
 class ShaderGroup;
 
@@ -28,6 +29,7 @@ public:
   };
 
   using ShaderGroupListType = llvm::ilist<ShaderGroup>;
+  using BXDFScopeListType = llvm::ilist<BXDFScope>;
 
   static LLOSLContext       *Get(llvm::LLVMContext *);
   static const LLOSLContext *Get(const llvm::LLVMContext *);
@@ -45,7 +47,7 @@ private:
   struct ErrorCategory;
 
   std::unique_ptr<LLOSLContextImpl> d_impl;
-  
+
   friend class LLOSLContextImpl;
 };
 

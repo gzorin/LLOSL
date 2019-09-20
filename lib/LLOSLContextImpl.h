@@ -23,8 +23,6 @@ public:
       return std::error_code(static_cast<int>(e), LLOSLContext::ErrorCategory());
   }
 
-  using ShaderGroupListType = LLOSLContext::ShaderGroupListType;
-  
   static const LLOSLContextImpl& Get(const LLOSLContext& context) { return *context.d_impl; }
   static LLOSLContextImpl&       Get(LLOSLContext& context)       { return *context.d_impl; }
 
@@ -45,12 +43,25 @@ public:
   llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(BuilderImpl *);
 
+  //
+  using ShaderGroupListType = LLOSLContext::ShaderGroupListType;
+
   static ShaderGroupListType LLOSLContextImpl::*getSublistAccess(ShaderGroup *) {
       return &LLOSLContextImpl::d_shader_groups;
   }
 
   void                             addShaderGroup(ShaderGroup *);
   void                             removeShaderGroup(ShaderGroup *);
+
+  //
+  using BXDFScopeListType = LLOSLContext::BXDFScopeListType;
+
+  static BXDFScopeListType LLOSLContextImpl::*getSublistAccess(BXDFScope *) {
+      return &LLOSLContextImpl::d_bxdf_scopes;
+  }
+
+  void                             addBXDFScope(BXDFScope *);
+  void                             removeBXDFScope(BXDFScope *);
 
 private:
 
@@ -69,6 +80,7 @@ private:
   BuilderImpl *d_builder = nullptr;
 
   ShaderGroupListType d_shader_groups;
+  BXDFScopeListType d_bxdf_scopes;
 };
 
 }
