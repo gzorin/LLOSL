@@ -102,6 +102,7 @@ private:
     llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
     llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_init_function_md, d_main_function_md;
     llvm::TypedTrackingMDRef<llvm::MDTuple> d_parameters_md;
+    llvm::TypedTrackingMDRef<llvm::MDTuple> d_bxdf_md;
 
     friend class BuilderImpl;
 };

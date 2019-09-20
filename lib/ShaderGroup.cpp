@@ -7,6 +7,7 @@
 #include <llosl/IR/PathInfoPass.h>
 #include <llosl/ShaderGroup.h>
 
+#include <llvm/ADT/StringRef.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -23,6 +24,8 @@ namespace llosl {
 
 ShaderGroup::ShaderGroup(BuilderImpl& builder)
     : d_context(&builder.context()) {
+    auto& ll_context = d_context->getLLContext();
+
     d_context->addShaderGroup(this);
 
     auto& shading_system = d_context->getShadingSystem();
@@ -30,6 +33,8 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     d_module = std::move(shading_system.get_group_module(shader_group.get()));
 
+    // Functions and types:
+    //
     // Inline layers:
     auto main_function = shading_system.get_group_main_function(shader_group.get());
     auto main_function_name = main_function->getName();
@@ -71,6 +76,8 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_globals_type = shading_system.get_group_globals_type(shader_group.get());
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 
+    // Instrument the function with path information, and collect information
+    // about the BXDFs:
     auto closure_ir = new ClosureIRPass();
     auto path_info = new PathInfoPass();
     auto instrumentation = new InstrumentationPass();
@@ -91,6 +98,7 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(main_function));
 
+    // Parameters:
     int parameter_count = 0;
     OSL::ustring *parameter_names = nullptr;
     OSL::TypeDesc *parameter_types = nullptr;
@@ -110,28 +118,61 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
         parameter_ll_types.push_back(d_data_type->getStructElementType(index));
     }
 
-    d_bxdf_info = bxdf->getBXDFInfo();
-
-    auto& ll_context = d_context->getLLContext();
-
     d_parameters_type = llvm::StructType::get(ll_context, parameter_ll_types);
 
-    std::vector<llvm::Metadata *> mds;
+    std::vector<llvm::Metadata *> parameter_mds;
     std::transform(
         d_parameters, d_parameters + d_parameter_count,
-        std::back_inserter(mds),
+        std::back_inserter(parameter_mds),
             [](auto& parameter) -> llvm::Metadata * {
                 return parameter.d_md.get();
         });
 
     d_parameters_md.reset(
-        llvm::MDTuple::get(ll_context, mds));
+        llvm::MDTuple::get(ll_context, parameter_mds));
 
+    // BXDFs:
+    d_bxdf_info = bxdf->getBXDFInfo();
+
+    std::vector<llvm::Metadata *> bxdf_mds;
+    auto it = std::back_inserter(bxdf_mds);
+
+    // First node is the number of paths:
+    unsigned path_count = d_bxdf_info->getPathCount();
+
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_count)));
+
+    // Second node is the max heap size:
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(32, d_bxdf_info->getMaxHeapSize())));
+
+    // Remaining nodes are repeating tuples of (path_id, heap_size, encoding):
+    for (unsigned path_id = 0; path_id < path_count; ++path_id) {
+        const auto& bxdf = d_bxdf_info->getBXDFForPath(path_id);
+        auto encoding = BXDF::encode(bxdf.ast);
+
+        *it++ = llvm::MDTuple::get(ll_context, {
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_id))),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(ll_context, llvm::APInt(32, bxdf.heap_size))),
+            llvm::MDString::get(ll_context,
+                llvm::StringRef(reinterpret_cast<const char *>(encoding.data()),
+                                encoding.size()))
+        });
+    }
+
+    d_bxdf_md.reset(
+        llvm::MDTuple::get(ll_context, bxdf_mds));
+
+    // All metadata:
     d_md.reset(
         llvm::MDTuple::get(ll_context, {
             d_init_function_md.get(),
             d_main_function_md.get(),
-            d_parameters_md.get()
+            d_parameters_md.get(),
+            d_bxdf_md.get()
         }));
 
     auto shadergroups_md = d_module->getOrInsertNamedMetadata("llosl.shadergroups");

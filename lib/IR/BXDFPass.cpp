@@ -366,28 +366,6 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
 
     d_bxdf_info = std::move(bxdf_info);
 
-    for (unsigned i = 0, n = d_bxdf_info->getPathCount(); i < n; ++i) {
-        llvm::errs() << i << ":\n";
-
-        const auto& bxdf = d_bxdf_info->getBXDFForPath(i);
-        llvm::errs() << "\t";
-        BXDF::print(llvm::errs(), bxdf.ast);
-        llvm::errs() << "\n";
-
-        auto encoding = BXDF::encode(bxdf.ast);
-
-        llvm::errs() << "\t";
-        for (auto byte : encoding) {
-            llvm::errs() << (uint32_t)byte << ";";
-        }
-        llvm::errs() << "\n";
-
-        auto laundered = BXDF::decode(encoding);
-        llvm::errs() << "\t";
-        BXDF::print(llvm::errs(), laundered);
-        llvm::errs() << "\n";
-    }
-
     return true;
 }
 
