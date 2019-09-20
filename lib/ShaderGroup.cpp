@@ -1,6 +1,7 @@
 #include "BuilderImpl.h"
 #include "LLOSLContextImpl.h"
 
+#include <llosl/IR/BXDFAST.h>
 #include <llosl/IR/BXDFPass.h>
 #include <llosl/IR/ClosureIRPass.h>
 #include <llosl/IR/InstrumentationPass.h>
@@ -150,7 +151,7 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     // Remaining nodes are repeating tuples of (path_id, heap_size, encoding):
     for (unsigned path_id = 0; path_id < path_count; ++path_id) {
         const auto& bxdf = d_bxdf_info->getBXDFForPath(path_id);
-        auto encoding = BXDF::encode(bxdf.ast);
+        auto encoding = BXDFAST::encode(bxdf.ast);
 
         *it++ = llvm::MDTuple::get(ll_context, {
             llvm::ConstantAsMetadata::get(
@@ -220,7 +221,7 @@ ShaderGroup::path_count() const {
     return d_bxdf_info->getPathCount();
 }
 
-const BXDF *
+const BXDFAST *
 ShaderGroup::getBXDFForPath(std::size_t path_id) const {
     if (path_id >= path_count()) {
         return nullptr;

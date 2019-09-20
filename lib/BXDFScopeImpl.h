@@ -19,7 +19,7 @@ public:
 
 private:
 
-    std::unordered_map<BXDF::Encoding, unsigned> d_index;
+    std::unordered_map<BXDFAST::Encoding, unsigned> d_index;
     unsigned d_bxdf_count = 0;
 };
 

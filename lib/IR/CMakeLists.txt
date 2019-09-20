@@ -2,6 +2,7 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_library(LLOSLIR STATIC
   Block.cpp
+  BXDFAST.cpp
   BXDFPass.cpp
   ClosureFunction.cpp
   ClosureIRPass.cpp

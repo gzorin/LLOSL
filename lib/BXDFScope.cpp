@@ -22,7 +22,7 @@ BXDFScopeImpl::insertBXDFsFromShaderGroup(const ShaderGroup& shader_group) {
 
     for (unsigned path_id = 0; path_id < path_count; ++path_id) {
         const auto& bxdf = shader_group.getBXDFForPath(path_id);
-        auto encoding = BXDF::encode(bxdf->ast);
+        auto encoding = BXDFAST::encode(bxdf->ast);
 
         auto [ it, inserted ] = d_index.insert({ encoding, 0 });
 

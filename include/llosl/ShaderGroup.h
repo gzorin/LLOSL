@@ -19,7 +19,7 @@ class Type;
 namespace llosl {
 
 class BuilderImpl;
-class BXDF;
+class BXDFAST;
 class BXDFInfo;
 class LLOSLContextImpl;
 
@@ -77,7 +77,7 @@ public:
     std::size_t parameter_count() const { return d_parameter_count; }
 
     std::size_t path_count() const;
-    const BXDF *getBXDFForPath(std::size_t) const;
+    const BXDFAST *getBXDFForPath(std::size_t) const;
     std::size_t getBXDFMaxHeapSize() const;
 
     llvm::MDNode *metadata() { return d_md.get(); }
