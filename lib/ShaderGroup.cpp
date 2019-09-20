@@ -86,8 +86,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     main_function = d_module->getFunction(main_function_name);
     assert(main_function);
 
-    //d_module->dump();
-
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
     d_main_function_md.reset(
@@ -111,6 +109,8 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
         new (parameter++) Parameter(index, *parameter_names++, *parameter_types++, this);
         parameter_ll_types.push_back(d_data_type->getStructElementType(index));
     }
+
+    d_bxdf_info = bxdf->getBXDFInfo();
 
     auto& ll_context = d_context->getLLContext();
 
@@ -172,6 +172,25 @@ ShaderGroup::main_function() const {
     return d_main_function_md
       ? llvm::cast<llvm::Function>(d_main_function_md->getValue())
       : nullptr;
+}
+
+std::size_t
+ShaderGroup::path_count() const {
+    return d_bxdf_info->getPathCount();
+}
+
+const BXDF *
+ShaderGroup::getBXDFForPath(std::size_t path_id) const {
+    if (path_id >= path_count()) {
+        return nullptr;
+    }
+
+    return &d_bxdf_info->getBXDFForPath(path_id);
+}
+
+std::size_t
+ShaderGroup::getBXDFMaxHeapSize() const {
+    return d_bxdf_info->getMaxHeapSize();
 }
 
 ShaderGroup::Parameter::Parameter(unsigned index, const OSL::ustring& name, const OSL::TypeDesc& type, ShaderGroup *parent)

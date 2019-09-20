@@ -19,6 +19,8 @@ class Type;
 namespace llosl {
 
 class BuilderImpl;
+class BXDF;
+class BXDFInfo;
 class LLOSLContextImpl;
 
 class ShaderGroup : public llvm::ilist_node<ShaderGroup> {
@@ -74,6 +76,10 @@ public:
 
     std::size_t parameter_count() const { return d_parameter_count; }
 
+    std::size_t path_count() const;
+    const BXDF *getBXDFForPath(std::size_t) const;
+    std::size_t getBXDFMaxHeapSize() const;
+
     llvm::MDNode *metadata() { return d_md.get(); }
     const llvm::MDNode *metadata() const { return d_md.get(); }
 
@@ -90,6 +96,8 @@ private:
 
     std::size_t d_parameter_count = 0;
     Parameter *d_parameters = nullptr;
+
+    std::shared_ptr<const BXDFInfo> d_bxdf_info;
 
     llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
     llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_init_function_md, d_main_function_md;
