@@ -81,6 +81,19 @@ struct BXDFMulFloat {
 
 void print(llvm::raw_ostream&, BXDFNodeRef);
 
+using BXDFEncoding = std::basic_string<uint8_t>;
+
+BXDFEncoding encodeBXDF(BXDFNodeRef);
+BXDFNodeRef  decodeBXDF(BXDFEncoding);
+
+// Encoding
+//
+// 3 bits for kind of node
+//
+// Component: 2 bytes (kind | id, address)
+// Weighted component: 2 bytes (kind | id, address)
+//
+
 class BXDFInfo {
 public:
 
