@@ -15,6 +15,7 @@ class LLVMContext;
 namespace llosl {
 
 class Builder;
+class BXDF;
 class BXDFScope;
 class LLOSLContextImpl;
 class ShaderGroup;
@@ -28,8 +29,9 @@ public:
       AlreadyBuilding = 1
   };
 
-  using ShaderGroupListType = llvm::ilist<ShaderGroup>;
+  using BXDFListType = llvm::ilist<BXDF>;
   using BXDFScopeListType = llvm::ilist<BXDFScope>;
+  using ShaderGroupListType = llvm::ilist<ShaderGroup>;
 
   static LLOSLContext       *Get(llvm::LLVMContext *);
   static const LLOSLContext *Get(const llvm::LLVMContext *);

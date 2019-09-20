@@ -1,9 +1,13 @@
 #include <llosl/Builder.h>
+#include <llosl/BXDF.h>
 #include <llosl/BXDFScope.h>
 #include <llosl/LLOSLContext.h>
 #include <llosl/ShaderGroup.h>
 
+#include <llvm/IR/Function.h>
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/DerivedTypes.h>
 
 #include <OSL/genclosure.h>
 
@@ -28,25 +32,28 @@ LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
 LLOSLContextImpl::~LLOSLContextImpl() {
     assert(!d_builder);
 
-    d_shader_groups.clear();
+    d_bxdfs.clear();
     d_bxdf_scopes.clear();
+    d_shader_groups.clear();
 }
 
 void
 LLOSLContextImpl::registerClosures() {
+    d_bxdf_module.reset(new llvm::Module("llosl.bxdf", d_llcontext));
+
     enum ClosureIDs {
-	EMISSION_ID = 1,
-	BACKGROUND_ID,
-	DIFFUSE_ID,
-	OREN_NAYAR_ID,
-	TRANSLUCENT_ID,
-	PHONG_ID,
-	WARD_ID,
-	MICROFACET_ID,
-	REFLECTION_ID,
-	FRESNEL_REFLECTION_ID,
-	REFRACTION_ID,
-	TRANSPARENT_ID,
+        EMISSION_ID = 1,
+        BACKGROUND_ID,
+        DIFFUSE_ID,
+        OREN_NAYAR_ID,
+        TRANSLUCENT_ID,
+        PHONG_ID,
+        WARD_ID,
+        MICROFACET_ID,
+        REFLECTION_ID,
+        FRESNEL_REFLECTION_ID,
+        REFRACTION_ID,
+        TRANSPARENT_ID,
     };
 
     struct EmptyParams      { };
@@ -58,7 +65,7 @@ LLOSLContextImpl::registerClosures() {
     struct RefractionParams { OSL::Vec3 N; float eta; };
     struct MicrofacetParams { OSL::ustring dist; OSL::Vec3 N, U; float xalpha, yalpha, eta; int refract; };
 
-        using namespace OSL;
+    using namespace OSL;
 
     // Describe the memory layout of each closure type to the OSL runtime
     enum { MaxParams = 32 };
@@ -106,12 +113,38 @@ LLOSLContextImpl::registerClosures() {
         { nullptr, 0, {} }
     };
 
+    auto float3_type = llvm::VectorType::get(
+        llvm::Type::getFloatTy(d_llcontext), 3);
+
+    auto void_pointer_type = llvm::Type::getInt8PtrTy(
+        d_llcontext);
+
     for (int i = 0; builtins[i].name; i++) {
         d_shading_system->register_closure(
             builtins[i].name,
             builtins[i].id,
             builtins[i].params,
             nullptr, nullptr);
+
+        llvm::Type *params_type = nullptr;
+
+        d_shading_system->query_closure(
+            nullptr, &builtins[i].id, nullptr, &params_type);
+
+        auto bxdf_component_type = llvm::FunctionType::get(
+            float3_type,
+            std::vector<llvm::Type *>{
+                float3_type, float3_type,
+                llvm::PointerType::get(params_type, 0) },
+            false);
+
+        std::string name = "llosl_" + std::string(builtins[i].name);
+
+        d_bxdf_components.insert({
+            builtins[i].id,
+            llvm::Function::Create(
+                bxdf_component_type, llvm::GlobalValue::ExternalLinkage,
+                name, d_bxdf_module.get()) });
     }
 }
 
@@ -139,9 +172,9 @@ LLOSLContextImpl::enterOSLErrorScope() {
 llvm::Expected<Builder>
 LLOSLContextImpl::getBuilder() {
     if (d_builder) {
-	return llvm::Expected<Builder>(
-	    llvm::errorCodeToError(
-		make_error_code(LLOSLContext::Error::AlreadyBuilding)));
+        return llvm::Expected<Builder>(
+            llvm::errorCodeToError(
+            make_error_code(LLOSLContext::Error::AlreadyBuilding)));
     }
 
     return llvm::Expected<Builder>(Builder(*this));
@@ -152,14 +185,35 @@ LLOSLContextImpl::resetBuilder(BuilderImpl *builder) {
     d_builder = builder;
 }
 
-void
-LLOSLContextImpl::addShaderGroup(ShaderGroup *shader_group) {
-    d_shader_groups.push_back(shader_group);
+const BXDF *
+LLOSLContextImpl::getOrInsertBXDF(BXDF::EncodingView encoding, BXDFAST::NodeRef ast) {
+    auto it = d_bxdf_index.find(encoding);
+    if (it == d_bxdf_index.end()) {
+        auto bxdf = new BXDF(*this, encoding, ast);
+        it = d_bxdf_index.insert({ BXDF::Encoding(encoding), bxdf }).first;
+    }
+
+    return it->second;
+}
+
+llvm::Function *
+LLOSLContextImpl::getBXDFComponent(unsigned id) const {
+    auto it = d_bxdf_components.find(id);
+    if (it == d_bxdf_components.end()) {
+        return nullptr;
+    }
+
+    return it->second;
 }
 
 void
-LLOSLContextImpl::removeShaderGroup(ShaderGroup *shader_group) {
-    d_shader_groups.remove(shader_group);
+LLOSLContextImpl::addBXDF(BXDF *bxdf) {
+    d_bxdfs.push_back(bxdf);
+}
+
+void
+LLOSLContextImpl::removeBXDF(BXDF *bxdf) {
+    d_bxdfs.remove(bxdf);
 }
 
 void
@@ -170,6 +224,16 @@ LLOSLContextImpl::addBXDFScope(BXDFScope *bxdf_scope) {
 void
 LLOSLContextImpl::removeBXDFScope(BXDFScope *bxdf_scope) {
     d_bxdf_scopes.remove(bxdf_scope);
+}
+
+void
+LLOSLContextImpl::addShaderGroup(ShaderGroup *shader_group) {
+    d_shader_groups.push_back(shader_group);
+}
+
+void
+LLOSLContextImpl::removeShaderGroup(ShaderGroup *shader_group) {
+    d_shader_groups.remove(shader_group);
 }
 
 // Interface:

@@ -19,6 +19,7 @@ class Type;
 namespace llosl {
 
 class BuilderImpl;
+class BXDF;
 class BXDFAST;
 class BXDFInfo;
 class LLOSLContextImpl;
@@ -98,6 +99,7 @@ private:
     Parameter *d_parameters = nullptr;
 
     std::shared_ptr<const BXDFInfo> d_bxdf_info;
+    std::vector<const BXDF *> d_bxdfs;
 
     llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
     llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_init_function_md, d_main_function_md;

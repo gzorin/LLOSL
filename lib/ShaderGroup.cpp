@@ -135,12 +135,15 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     // BXDFs:
     d_bxdf_info = bxdf->getBXDFInfo();
 
+    unsigned path_count = d_bxdf_info->getPathCount();
+
+    d_bxdfs.reserve(path_count);
+    auto it_bxdf = std::back_inserter(d_bxdfs);
+
     std::vector<llvm::Metadata *> bxdf_mds;
     auto it = std::back_inserter(bxdf_mds);
 
     // First node is the number of paths:
-    unsigned path_count = d_bxdf_info->getPathCount();
-
     *it++ = llvm::ConstantAsMetadata::get(
         llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_count)));
 
@@ -152,6 +155,8 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     for (unsigned path_id = 0; path_id < path_count; ++path_id) {
         const auto& bxdf = d_bxdf_info->getBXDFForPath(path_id);
         auto encoding = BXDFAST::encode(bxdf.ast);
+
+        *it_bxdf = d_context->getOrInsertBXDF(encoding, bxdf.ast);
 
         *it++ = llvm::MDTuple::get(ll_context, {
             llvm::ConstantAsMetadata::get(
