@@ -80,6 +80,8 @@ BXDF::print(llvm::raw_ostream& s, BXDF::NodeRef node) {
     visit(node, v, bv);
 }
 
+namespace {
+
 enum class Opcode : uint8_t {
     Void              = 0 << 5,
     Component         = 1 << 5,
@@ -89,6 +91,16 @@ enum class Opcode : uint8_t {
     MulFloat          = 5 << 5
 };
 
+uint8_t encode(Opcode opcode, unsigned operand) {
+    return (uint8_t)opcode | ((uint8_t)operand & 0x1F);
+}
+
+std::pair<Opcode, unsigned> decode(uint8_t code) {
+    return std::make_pair((Opcode)(code & 0xE0), (unsigned)(code & 0x1F));
+}
+
+} // End anonymous namespace
+
 BXDF::Encoding
 BXDF::encode(BXDF::NodeRef node) {
     if (!node) {
@@ -97,8 +109,8 @@ BXDF::encode(BXDF::NodeRef node) {
 
     // Allocator
     struct Allocate {
-        std::size_t size = 0;
-        std::unordered_map<NodeRef, std::size_t> position;
+        unsigned size = 0;
+        std::unordered_map<NodeRef, unsigned> position;
 
         void operator()(NodeRef, const Void& node) {
         }
@@ -135,32 +147,31 @@ BXDF::encode(BXDF::NodeRef node) {
 
     struct Encoder {
         Encoding::iterator it;
-        std::unordered_map<NodeRef, std::size_t> position;
+        std::unordered_map<NodeRef, unsigned> position;
 
         void operator()(NodeRef, const Void& node) {
         }
 
         void operator()(NodeRef, const Component& node) {
-            *it++ = (uint8_t)Opcode::Component | ((uint8_t)node.id & 0x1F);
+            *it++ = llosl::encode(Opcode::Component, node.id);
             *it++ = (uint8_t)node.address;
         }
 
         void operator()(NodeRef, const WeightedComponent& node) {
-            *it++ = (uint8_t)Opcode::WeightedComponent | ((uint8_t)node.id & 0x1F);
+            *it++ = llosl::encode(Opcode::WeightedComponent, node.id);
             *it++ = (uint8_t)node.address;
         }
 
         void operator()(NodeRef, const Add& node) {
-            auto rhs_position = position[node.rhs];
-            *it++ = (uint8_t)Opcode::Add | ((uint8_t)rhs_position & 0x1F);
+            *it++ = llosl::encode(Opcode::Add, position[node.rhs]);
         }
 
         void operator()(NodeRef, const MulColor& node) {
-            *it++ = (uint8_t)Opcode::MulColor | ((uint8_t)(node.rhs_address >> 2) & 0x1F);
+            *it++  = llosl::encode(Opcode::MulColor, node.rhs_address >> 2);
         }
 
         void operator()(NodeRef, const MulFloat& node) {
-            *it++ = (uint8_t)Opcode::MulFloat | ((uint8_t)(node.rhs_address >> 2) & 0x1F);
+            *it++  = llosl::encode(Opcode::MulFloat, node.rhs_address >> 2);
         }
     };
 
@@ -179,9 +190,7 @@ BXDF::decode(BXDF::Encoding encoding) {
 
     std::function<NodeRef(Encoding::const_iterator)> detail =
     [it_begin, &detail](Encoding::const_iterator it) -> NodeRef {
-        auto code = *it++;
-        Opcode opcode = (Opcode)(code & 0xE0);
-        auto operand = (unsigned)(code & 0x1F);
+        auto [ opcode, operand ] = llosl::decode(*it++);
 
         switch (opcode) {
         case Opcode::Void: {
