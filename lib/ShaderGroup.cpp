@@ -153,16 +153,18 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     // Remaining nodes are repeating tuples of (path_id, heap_size, encoding):
     for (unsigned path_id = 0; path_id < path_count; ++path_id) {
-        const auto& bxdf = d_bxdf_info->getBXDFForPath(path_id);
-        auto encoding = BXDFAST::encode(bxdf.ast);
+        const auto& bxdf_info = d_bxdf_info->getBXDFForPath(path_id);
+        auto encoding = BXDFAST::encode(bxdf_info.ast);
 
-        *it_bxdf = d_context->getOrInsertBXDF(encoding, bxdf.ast);
+        auto [ bxdf, index, inserted ] = d_context->getOrInsertBXDF(encoding, bxdf_info.ast, bxdf_info.heap_size);
+
+        *it_bxdf = bxdf;
 
         *it++ = llvm::MDTuple::get(ll_context, {
             llvm::ConstantAsMetadata::get(
                 llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_id))),
             llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(ll_context, llvm::APInt(32, bxdf.heap_size))),
+                llvm::ConstantInt::get(ll_context, llvm::APInt(32, bxdf_info.heap_size))),
             llvm::MDString::get(ll_context,
                 llvm::StringRef(reinterpret_cast<const char *>(encoding.data()),
                                 encoding.size()))

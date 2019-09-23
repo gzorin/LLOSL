@@ -16,9 +16,9 @@ namespace llosl {
 
 class Builder;
 class BXDF;
-class BXDFScope;
 class LLOSLContextImpl;
 class ShaderGroup;
+class UberBXDF;
 
 class LLOSLContext {
 public:
@@ -30,7 +30,7 @@ public:
   };
 
   using BXDFListType = llvm::ilist<BXDF>;
-  using BXDFScopeListType = llvm::ilist<BXDFScope>;
+  using UberBXDFListType = llvm::ilist<UberBXDF>;
   using ShaderGroupListType = llvm::ilist<ShaderGroup>;
 
   static LLOSLContext       *Get(llvm::LLVMContext *);
@@ -43,6 +43,8 @@ public:
   llvm::LLVMContext&         getLLContext();
 
   llvm::Expected<Builder>    getBuilder();
+
+  UberBXDF                   *getUberBXDF() const;
 
 private:
 

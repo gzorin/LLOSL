@@ -3,10 +3,10 @@ add_definitions(${LLVM_DEFINITIONS})
 add_library(LLOSL STATIC
   Builder.cpp
   BXDF.cpp
-  BXDFScope.cpp
   LLOSLContext.cpp
   OSLErrorHandler.cpp
-  ShaderGroup.cpp)
+  ShaderGroup.cpp
+  UberBXDF.cpp)
 
 target_compile_features(LLOSL PUBLIC cxx_std_17)
 

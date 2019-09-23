@@ -1,8 +1,8 @@
 #include <llosl/Builder.h>
 #include <llosl/BXDF.h>
-#include <llosl/BXDFScope.h>
 #include <llosl/LLOSLContext.h>
 #include <llosl/ShaderGroup.h>
+#include <llosl/UberBXDF.h>
 
 #include <llvm/IR/Function.h>
 #include <llvm/IR/LLVMContext.h>
@@ -32,8 +32,8 @@ LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
 LLOSLContextImpl::~LLOSLContextImpl() {
     assert(!d_builder);
 
+    d_uber_bxdfs.clear();
     d_bxdfs.clear();
-    d_bxdf_scopes.clear();
     d_shader_groups.clear();
 }
 
@@ -146,6 +146,8 @@ LLOSLContextImpl::registerClosures() {
                 bxdf_component_type, llvm::GlobalValue::ExternalLinkage,
                 name, d_bxdf_module.get()) });
     }
+
+    d_uber_bxdf = new UberBXDF(*this);
 }
 
 // OSL::RendererServices overrides:
@@ -185,15 +187,21 @@ LLOSLContextImpl::resetBuilder(BuilderImpl *builder) {
     d_builder = builder;
 }
 
-const BXDF *
-LLOSLContextImpl::getOrInsertBXDF(BXDF::EncodingView encoding, BXDFAST::NodeRef ast) {
+std::tuple<const BXDF *, unsigned, bool>
+LLOSLContextImpl::getOrInsertBXDF(BXDF::EncodingView encoding, BXDFAST::NodeRef ast, std::size_t heap_size) {
+    // Add to the overall index:
     auto it = d_bxdf_index.find(encoding);
+    bool inserted = false;
     if (it == d_bxdf_index.end()) {
-        auto bxdf = new BXDF(*this, encoding, ast);
+        auto bxdf = new BXDF(*this, encoding, ast, heap_size);
         it = d_bxdf_index.insert({ BXDF::Encoding(encoding), bxdf }).first;
+        inserted = true;
     }
 
-    return it->second;
+    // Add to the current UberBXDF:
+    auto tmp = d_uber_bxdf->insertBXDF(it->second);
+
+    return { it->second, tmp.first, inserted || tmp.second };
 }
 
 llvm::Function *
@@ -217,13 +225,13 @@ LLOSLContextImpl::removeBXDF(BXDF *bxdf) {
 }
 
 void
-LLOSLContextImpl::addBXDFScope(BXDFScope *bxdf_scope) {
-    d_bxdf_scopes.push_back(bxdf_scope);
+LLOSLContextImpl::addUberBXDF(UberBXDF *uber_bxdf) {
+    d_uber_bxdfs.push_back(uber_bxdf);
 }
 
 void
-LLOSLContextImpl::removeBXDFScope(BXDFScope *bxdf_scope) {
-    d_bxdf_scopes.remove(bxdf_scope);
+LLOSLContextImpl::removeUberBXDF(UberBXDF *uber_bxdf) {
+    d_uber_bxdfs.remove(uber_bxdf);
 }
 
 void
@@ -307,6 +315,11 @@ LLOSLContext::getLLContext() {
 llvm::Expected<Builder>
 LLOSLContext::getBuilder() {
     return d_impl->getBuilder();
+}
+
+UberBXDF *
+LLOSLContext::getUberBXDF() const {
+    return d_impl->uber_bxdf();
 }
 
 } // End namespace llosl

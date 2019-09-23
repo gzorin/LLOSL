@@ -6,11 +6,13 @@
 
 #include <llosl/LLOSLContext.h>
 #include <llosl/BXDF.h>
+#include <llosl/UberBXDF.h>
 #include <llosl/IR/BXDFAST.h>
 
 #include <OSL/oslexec.h>
 
 #include <map>
+#include <tuple>
 
 namespace llvm {
 class FunctionType;
@@ -49,12 +51,19 @@ public:
   llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(BuilderImpl *);
 
-  const BXDF                      *getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef);
+  std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef, std::size_t);
 
   llvm::Module                    *bxdf_module()       { return d_bxdf_module.get(); }
   const llvm::Module              *bxdf_module() const { return d_bxdf_module.get(); }
 
+  using BXDFComponentMapType = std::map<unsigned, llvm::Function *>;
+
+  BXDFComponentMapType&            bxdf_components()       { return d_bxdf_components; }
+  const BXDFComponentMapType&      bxdf_components() const { return d_bxdf_components; }
+
   llvm::Function                  *getBXDFComponent(unsigned id) const;
+
+  UberBXDF                        *uber_bxdf() const   { return d_uber_bxdf; }
 
   //
   using BXDFListType = LLOSLContext::BXDFListType;
@@ -67,14 +76,14 @@ public:
   void                             removeBXDF(BXDF *);
 
   //
-  using BXDFScopeListType = LLOSLContext::BXDFScopeListType;
+  using UberBXDFListType = LLOSLContext::UberBXDFListType;
 
-  static BXDFScopeListType LLOSLContextImpl::*getSublistAccess(BXDFScope *) {
-      return &LLOSLContextImpl::d_bxdf_scopes;
+  static UberBXDFListType LLOSLContextImpl::*getSublistAccess(UberBXDF *) {
+      return &LLOSLContextImpl::d_uber_bxdfs;
   }
 
-  void                             addBXDFScope(BXDFScope *);
-  void                             removeBXDFScope(BXDFScope *);
+  void                             addUberBXDF(UberBXDF *);
+  void                             removeUberBXDF(UberBXDF *);
 
   //
   using ShaderGroupListType = LLOSLContext::ShaderGroupListType;
@@ -99,7 +108,7 @@ private:
   llvm::LLVMContext& d_llcontext;
 
   std::unique_ptr<llvm::Module> d_bxdf_module;
-  std::map<unsigned, llvm::Function *> d_bxdf_components;
+  BXDFComponentMapType d_bxdf_components;
 
   std::unique_ptr<OSL::ShadingSystem> d_shading_system;
   OSL::ShadingContext *d_shading_context;
@@ -107,8 +116,10 @@ private:
   BuilderImpl *d_builder = nullptr;
 
   BXDFListType d_bxdfs;
-  BXDFScopeListType d_bxdf_scopes;
+  UberBXDFListType d_uber_bxdfs;
   ShaderGroupListType d_shader_groups;
+
+  UberBXDF *d_uber_bxdf = nullptr;
 
   std::map<BXDF::Encoding, const BXDF *, std::less<> > d_bxdf_index;
 };

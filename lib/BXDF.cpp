@@ -11,8 +11,10 @@
 
 namespace llosl {
 
-BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef ast)
-: d_context(&context) {
+BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef ast, std::size_t heap_size)
+: d_context(&context)
+, d_encoding(encoding)
+, d_heap_size(heap_size) {
     d_context->addBXDF(this);
 
     auto& ll_context = d_context->getLLContext();
@@ -87,7 +89,7 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
         false);
 
     d_function = llvm::Function::Create(
-        bxdf_type, llvm::GlobalValue::ExternalLinkage, "", d_context->bxdf_module());
+        bxdf_type, llvm::GlobalValue::ExternalLinkage, "llosl_bxdf", d_context->bxdf_module());
 
     auto Wi    = d_function->arg_begin();
     auto Wr    = d_function->arg_begin() + 1;
@@ -120,7 +122,6 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Component& node) {
             auto args = builder.CreateStructGEP(nullptr, scope, scope_index++);
-            context.getBXDFComponent(node.id)->dump();
             result = builder.CreateCall(
                 context.getBXDFComponent(node.id),
                 std::vector<llvm::Value*>{ Wi, Wr, args });
@@ -172,8 +173,6 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
       BXDFAST::visit(ast, pre, post);
       builder.CreateRet(post.result);
     }
-
-    d_function->dump();
 }
 
 BXDF::~BXDF() {
