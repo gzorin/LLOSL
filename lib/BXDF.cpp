@@ -85,7 +85,7 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
         float3_type,
         std::vector<llvm::Type *>{
             float3_type, float3_type,
-            llvm::PointerType::get(d_scope_type, 0) },
+            llvm::PointerType::get(d_scope_type, d_context->bxdf_address_space()) },
         false);
 
     d_function = llvm::Function::Create(

@@ -19,10 +19,11 @@
 namespace llosl {
 
 // Implementation:
-LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext)
+LLOSLContextImpl::LLOSLContextImpl(llvm::LLVMContext& llcontext, unsigned bxdf_address_space)
     : d_llcontext(llcontext)
     , d_shading_system(new OSL::ShadingSystem(this, nullptr, &d_osl_error_handler))
-    , d_shading_context(d_shading_system->get_context(d_shading_system->create_thread_info())) {
+    , d_shading_context(d_shading_system->get_context(d_shading_system->create_thread_info()))
+    , d_bxdf_address_space(bxdf_address_space) {
     d_shading_system->attribute("lockgeom", 0);
     d_shading_system->attribute("optimize", 0);
 
@@ -135,7 +136,7 @@ LLOSLContextImpl::registerClosures() {
             float3_type,
             std::vector<llvm::Type *>{
                 float3_type, float3_type,
-                llvm::PointerType::get(params_type, 0) },
+                llvm::PointerType::get(params_type, d_bxdf_address_space) },
             false);
 
         std::string name = "llosl_" + std::string(builtins[i].name);
@@ -293,8 +294,8 @@ LLOSLContext::Get(llvm::LLVMContext* llcontext) {
 	nullptr;
 }
 
-LLOSLContext::LLOSLContext(llvm::LLVMContext& llcontext)
-  : d_impl(new LLOSLContextImpl(llcontext)) {
+LLOSLContext::LLOSLContext(llvm::LLVMContext& llcontext, unsigned bxdf_address_space)
+  : d_impl(new LLOSLContextImpl(llcontext, bxdf_address_space)) {
     contexts::llvm_to_llosl().insert(std::make_pair(&llcontext, this));
 }
 

@@ -36,7 +36,7 @@ public:
   static LLOSLContext       *Get(llvm::LLVMContext *);
   static const LLOSLContext *Get(const llvm::LLVMContext *);
 
-  LLOSLContext(llvm::LLVMContext&);
+  LLOSLContext(llvm::LLVMContext&, unsigned = 0);
   ~LLOSLContext();
 
   const llvm::LLVMContext&   getLLContext() const;

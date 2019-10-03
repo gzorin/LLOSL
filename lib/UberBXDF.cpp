@@ -111,7 +111,9 @@ UberBXDF::insertBXDF(const BXDF *bxdf) {
 
         auto call_instruction = builder.CreateCall(
                 function,
-                std::vector<llvm::Value*>{ Wi, Wr, builder.CreatePointerCast(scope, llvm::PointerType::get(bxdf->scope_type(), 0)) });
+                std::vector<llvm::Value*>{
+                    Wi, Wr,
+                    builder.CreatePointerCast(scope, llvm::PointerType::get(bxdf->scope_type(), d_context->bxdf_address_space())) });
 
         builder.CreateRet(call_instruction);
 

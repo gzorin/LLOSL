@@ -34,7 +34,7 @@ public:
   static const LLOSLContextImpl& Get(const LLOSLContext& context) { return *context.d_impl; }
   static LLOSLContextImpl&       Get(LLOSLContext& context)       { return *context.d_impl; }
 
-  LLOSLContextImpl(llvm::LLVMContext&);
+  LLOSLContextImpl(llvm::LLVMContext&, unsigned = 0);
   ~LLOSLContextImpl();
 
   const llvm::LLVMContext&         getLLContext() const { return d_llcontext; }
@@ -50,6 +50,8 @@ public:
 
   llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(BuilderImpl *);
+
+  unsigned                         bxdf_address_space() const { return d_bxdf_address_space; }
 
   std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef, std::size_t);
 
@@ -115,6 +117,7 @@ private:
 
   BuilderImpl *d_builder = nullptr;
 
+  unsigned d_bxdf_address_space = 0;
   BXDFListType d_bxdfs;
   UberBXDFListType d_uber_bxdfs;
   ShaderGroupListType d_shader_groups;
