@@ -129,13 +129,11 @@ AllocateWeightedComponent::getClosureSize() const {
 }
 
 // AddClosureClosure
-AddClosureClosure::AddClosureClosure(const llvm::CallInst& ll_instruction, Value& lhs, Value& rhs, Block *block)
-: Instruction(Value::ValueKind::AddClosureClosure, 2, block)
+AddClosureClosure::AddClosureClosure(const llvm::CallInst& ll_instruction, unsigned lhs, unsigned rhs, Block *block)
+: Instruction(Value::ValueKind::AddClosureClosure, 0, block)
 , d_ll_instruction(ll_instruction)
 , d_lhs(lhs)
 , d_rhs(rhs) {
-    setOperandValue(0, &d_lhs);
-    setOperandValue(1, &d_rhs);
 }
 
 const llvm::Value *
@@ -144,11 +142,10 @@ AddClosureClosure::getLLValue() const {
 }
 
 // MulClosureColor
-MulClosureColor::MulClosureColor(const llvm::CallInst& ll_instruction, Value& lhs, Block *block)
-: Instruction(Value::ValueKind::MulClosureColor, 1, block)
+MulClosureColor::MulClosureColor(const llvm::CallInst& ll_instruction, unsigned lhs, Block *block)
+: Instruction(Value::ValueKind::MulClosureColor, 0, block)
 , d_ll_instruction(ll_instruction)
 , d_lhs(lhs) {
-    setOperandValue(0, &d_lhs);
 }
 
 const llvm::Value *
@@ -157,11 +154,10 @@ MulClosureColor::getLLValue() const {
 }
 
 // MulClosureFloat
-MulClosureFloat::MulClosureFloat(const llvm::CallInst& ll_instruction, Value& lhs, Block *block)
-: Instruction(Value::ValueKind::MulClosureFloat, 1, block)
+MulClosureFloat::MulClosureFloat(const llvm::CallInst& ll_instruction, unsigned lhs, Block *block)
+: Instruction(Value::ValueKind::MulClosureFloat, 0, block)
 , d_ll_instruction(ll_instruction)
 , d_lhs(lhs) {
-    setOperandValue(0, &d_lhs);
 }
 
 const llvm::Value *

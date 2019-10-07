@@ -119,19 +119,19 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
                 case Value::ValueKind::AddClosureClosure: {
                     auto add_instruction = llvm::cast<AddClosureClosure>(&inst);
                     frame.values[&inst] = std::make_shared<BXDFAST::Node>(
-                        BXDFAST::Add(frame.values[add_instruction->getLHS()], frame.values[add_instruction->getRHS()]));
+                        BXDFAST::Add(frame.storage[add_instruction->getLHS()], frame.storage[add_instruction->getRHS()]));
                 } break;
                 case Value::ValueKind::MulClosureColor: {
                     auto mul_instruction = llvm::cast<MulClosureColor>(&inst);
                     auto address = frame.allocate(12);
                     frame.values[&inst] = std::make_shared<BXDFAST::Node>(
-                        BXDFAST::MulColor(frame.values[mul_instruction->getLHS()], address));
+                        BXDFAST::MulColor(frame.storage[mul_instruction->getLHS()], address));
                 } break;
                 case Value::ValueKind::MulClosureFloat: {
                     auto mul_instruction = llvm::cast<MulClosureFloat>(&inst);
                     auto address = frame.allocate(4);
                     frame.values[&inst] = std::make_shared<BXDFAST::Node>(
-                        BXDFAST::MulFloat(frame.values[mul_instruction->getLHS()], address));
+                        BXDFAST::MulFloat(frame.storage[mul_instruction->getLHS()], address));
                 } break;
                 case Value::ValueKind::Cast: {
                     auto cast_instruction = llvm::cast<Cast>(&inst);

@@ -152,21 +152,19 @@ public:
         return value->getKind() == Value::ValueKind::AddClosureClosure;
     }
 
-    AddClosureClosure(const llvm::CallInst&, Value&, Value&, Block * = nullptr);
+    AddClosureClosure(const llvm::CallInst&, unsigned, unsigned, Block * = nullptr);
 
-    Value* getLHS() { return &d_lhs; }
-    const Value* getLHS() const { return &d_lhs; }
+    unsigned getLHS() const { return d_lhs; }
 
-    Value* getRHS() { return &d_rhs; }
-    const Value* getRHS() const { return &d_rhs; }
+    unsigned getRHS() const { return d_rhs; }
 
     const llvm::Value *getLLValue() const override;
 
 private:
 
     const llvm::CallInst& d_ll_instruction;
-    Value& d_lhs;
-    Value& d_rhs;
+    unsigned d_lhs;
+    unsigned d_rhs;
 };
 
 class MulClosureColor : public Instruction {
@@ -176,17 +174,16 @@ public:
         return value->getKind() == Value::ValueKind::MulClosureColor;
     }
 
-    MulClosureColor(const llvm::CallInst&, Value&, Block * = nullptr);
+    MulClosureColor(const llvm::CallInst&, unsigned, Block * = nullptr);
 
-    Value* getLHS() { return &d_lhs; }
-    const Value* getLHS() const { return &d_lhs; }
+    unsigned getLHS() const { return d_lhs; }
 
     const llvm::Value *getLLValue() const override;
 
 private:
 
     const llvm::CallInst& d_ll_instruction;
-    Value& d_lhs;
+    unsigned d_lhs;
 };
 
 class MulClosureFloat : public Instruction {
@@ -196,17 +193,16 @@ public:
         return value->getKind() == Value::ValueKind::MulClosureFloat;
     }
 
-    MulClosureFloat(const llvm::CallInst&, Value&, Block * = nullptr);
+    MulClosureFloat(const llvm::CallInst&, unsigned, Block * = nullptr);
 
-    Value* getLHS() { return &d_lhs; }
-    const Value* getLHS() const { return &d_lhs; }
+    unsigned getLHS() const { return d_lhs; }
 
     const llvm::Value *getLLValue() const override;
 
 private:
 
     const llvm::CallInst& d_ll_instruction;
-    Value& d_lhs;
+    unsigned d_lhs;
 };
 
 class Cast : public Instruction {

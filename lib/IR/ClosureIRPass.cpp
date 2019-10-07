@@ -301,13 +301,15 @@ AddClosureClosure *
 ClosureIRPass::Context::createAddClosureClosure(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    auto lhs = findValue(call_instruction.getArgOperand(1));
+    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 1);
+    auto lhs = findClosureStorage(lhs_location);
     assert(lhs);
 
-    auto rhs = findValue(call_instruction.getArgOperand(2));
+    llvm::MemoryLocation rhs_location(call_instruction.getArgOperand(2), 1);
+    auto rhs = findClosureStorage(lhs_location);
     assert(rhs);
 
-    auto instruction = new AddClosureClosure(call_instruction, **lhs, **rhs, block);
+    auto instruction = new AddClosureClosure(call_instruction, *lhs, *rhs, block);
     insertValue(instruction);
     return instruction;
 }
@@ -316,10 +318,11 @@ MulClosureColor *
 ClosureIRPass::Context::createMulClosureColor(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    auto lhs = findValue(call_instruction.getArgOperand(1));
+    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 1);
+    auto lhs = findClosureStorage(lhs_location);
     assert(lhs);
 
-    auto instruction = new MulClosureColor(call_instruction, **lhs, block);
+    auto instruction = new MulClosureColor(call_instruction, *lhs, block);
     insertValue(instruction);
     return instruction;
 }
@@ -328,10 +331,11 @@ MulClosureFloat *
 ClosureIRPass::Context::createMulClosureFloat(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    auto lhs = findValue(call_instruction.getArgOperand(1));
+    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 1);
+    auto lhs = findClosureStorage(lhs_location);
     assert(lhs);
 
-    auto instruction = new MulClosureFloat(call_instruction, **lhs, block);
+    auto instruction = new MulClosureFloat(call_instruction, *lhs, block);
     insertValue(instruction);
     return instruction;
 }
