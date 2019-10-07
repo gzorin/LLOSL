@@ -64,6 +64,8 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
             llvm::InlineFunction(call_instruction, info);
         });
 
+    main_function->dump();
+
     // Other optimizations:
     auto mpm = std::make_unique<llvm::legacy::PassManager>();
     mpm->add(llvm::createUnifyFunctionExitNodesPass());
@@ -74,12 +76,13 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     mpm->add(llvm::createPromoteMemoryToRegisterPass());
     mpm->run(*d_module);
 
+    d_closure_type = shading_system.get_group_closure_type(shader_group.get());
     d_globals_type = shading_system.get_group_globals_type(shader_group.get());
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 
     // Instrument the function with path information, and collect information
     // about the BXDFs:
-    auto closure_ir = new ClosureIRPass();
+    auto closure_ir = new ClosureIRPass(*this);
     auto path_info = new PathInfoPass();
     auto instrumentation = new InstrumentationPass();
     auto bxdf = new BXDFPass();
@@ -93,8 +96,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     main_function = d_module->getFunction(main_function_name);
     assert(main_function);
-
-    main_function->dump();
 
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));

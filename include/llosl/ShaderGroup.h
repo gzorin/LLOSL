@@ -39,6 +39,7 @@ public:
     llvm::Module       *module()       { return d_module.get(); }
 
     llvm::Type *globals_type() const { return d_globals_type; }
+    llvm::Type *closure_type() const { return d_closure_type; }
     llvm::Type *data_type() const { return d_data_type; }
     llvm::Type *parameters_type() const { return d_parameters_type; }
 
@@ -92,6 +93,7 @@ private:
 
     std::unique_ptr<llvm::Module> d_module;
     llvm::Type *d_globals_type = nullptr;
+    llvm::Type *d_closure_type = nullptr;
     llvm::Type *d_data_type = nullptr;
     llvm::Type *d_parameters_type = nullptr;
 
