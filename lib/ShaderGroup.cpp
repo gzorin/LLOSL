@@ -64,8 +64,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
             llvm::InlineFunction(call_instruction, info);
         });
 
-    main_function->dump();
-
     // Other optimizations:
     auto mpm = std::make_unique<llvm::legacy::PassManager>();
     mpm->add(llvm::createUnifyFunctionExitNodesPass());
