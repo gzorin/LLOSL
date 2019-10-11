@@ -306,7 +306,7 @@ ClosureIRPass::Context::createAddClosureClosure(const llvm::CallInst& call_instr
     assert(lhs);
 
     llvm::MemoryLocation rhs_location(call_instruction.getArgOperand(2), 1);
-    auto rhs = findClosureStorage(lhs_location);
+    auto rhs = findClosureStorage(rhs_location);
     assert(rhs);
 
     auto instruction = new AddClosureClosure(call_instruction, *lhs, *rhs, block);
