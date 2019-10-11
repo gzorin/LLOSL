@@ -11,9 +11,12 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/GlobalVariable.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Type.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils/Cloning.h>
@@ -95,11 +98,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     main_function = d_module->getFunction(main_function_name);
     assert(main_function);
 
-    d_init_function_md.reset(
-        llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
-    d_main_function_md.reset(
-        llvm::ValueAsMetadata::get(main_function));
-
     // Parameters:
     int parameter_count = 0;
     OSL::ustring *parameter_names = nullptr;
@@ -141,6 +139,13 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_bxdfs.reserve(path_count);
     auto it_bxdf = std::back_inserter(d_bxdfs);
 
+    auto int16_type = llvm::Type::getInt16Ty(ll_context);
+    auto path_id_to_index_type = llvm::ArrayType::get(int16_type, path_count);
+
+    std::vector<llvm::Constant *> path_id_to_index;
+    path_id_to_index.reserve(path_count);
+    auto it_path_id_to_index = std::back_inserter(path_id_to_index);
+
     std::vector<llvm::Metadata *> bxdf_mds;
     auto it = std::back_inserter(bxdf_mds);
 
@@ -161,6 +166,8 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
         *it_bxdf = bxdf;
 
+        *it_path_id_to_index = llvm::ConstantInt::get(int16_type, index);
+
         *it++ = llvm::MDTuple::get(ll_context, {
             llvm::ConstantAsMetadata::get(
                 llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_id))),
@@ -174,6 +181,40 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     d_bxdf_md.reset(
         llvm::MDTuple::get(ll_context, bxdf_mds));
+
+    // Create a function that calls the main the function and then maps the
+    // result to an index in the UberBXDF:
+    auto path_id_to_index_value = new llvm::GlobalVariable(
+        *d_module, path_id_to_index_type, true,
+        llvm::GlobalVariable::InternalLinkage,
+        llvm::ConstantArray::get(path_id_to_index_type, path_id_to_index),
+        "LLOSLPathIdToIndex", nullptr,
+        llvm::GlobalVariable::NotThreadLocal, 2);
+
+    auto mapping_main_function = llvm::Function::Create(
+        main_function->getFunctionType(),
+        llvm::GlobalValue::ExternalLinkage, main_function->getName().str() + "_mapped", d_module.get());
+
+  { auto entry_block = llvm::BasicBlock::Create(ll_context, "entry", mapping_main_function);
+
+    llvm::IRBuilder<> builder(ll_context);
+    builder.SetInsertPoint(entry_block);
+
+    auto path_id = builder.CreateCall(main_function, std::vector<llvm::Value *>{
+        mapping_main_function->arg_begin(),
+        mapping_main_function->arg_begin() + 1
+    });
+
+    auto index = builder.CreateLoad(
+        builder.CreateGEP(path_id_to_index_value, std::vector<llvm::Value *>{
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(ll_context), 0), path_id}));
+
+    builder.CreateRet(index); }
+
+    d_init_function_md.reset(
+        llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
+    d_main_function_md.reset(
+        llvm::ValueAsMetadata::get(mapping_main_function));
 
     // All metadata:
     d_md.reset(
