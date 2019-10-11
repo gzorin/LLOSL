@@ -58,7 +58,7 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::MulColor&) {
             scope_types.push_back(
-                llvm::VectorType::get(
+                llvm::ArrayType::get(
                     llvm::Type::getFloatTy(ll_context), 3));
         }
 
@@ -143,10 +143,17 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::MulColor& node) {
             auto lhs = values[node.lhs];
+
             auto rhs = builder.CreateLoad(
                 builder.CreateStructGEP(nullptr, scope, scope_index++));
 
-            result = builder.CreateFMul(lhs, rhs);
+            result = builder.CreateFMul(
+                lhs, builder.CreateInsertElement(
+                    builder.CreateInsertElement(
+                        builder.CreateInsertElement(
+                            llvm::UndefValue::get(llvm::VectorType::get(
+                                                llvm::Type::getFloatTy(ll_context), 3)),
+                            builder.CreateExtractValue(rhs, 0), (unsigned)0), builder.CreateExtractValue(rhs, 1), (unsigned)1), builder.CreateExtractValue(rhs, 2), (unsigned)2));
 
             values[ref] = result;
         }

@@ -35,7 +35,7 @@ UberBXDF::UberBXDF(LLOSLContextImpl& context)
         llvm::Type::getFloatTy(ll_context), 3);
 
     auto void_pointer_type = llvm::Type::getInt8PtrTy(
-        ll_context);
+        ll_context, 1);
 
     auto bxdf_type = llvm::FunctionType::get(
         float3_type,
