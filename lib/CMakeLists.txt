@@ -13,7 +13,9 @@ target_compile_features(LLOSL PUBLIC cxx_std_17)
 target_include_directories(LLOSL BEFORE
   PRIVATE
   ${CMAKE_SOURCE_DIR}/include
-  ${LLOSL_DEPS_DIR}/include)
+  ${LLOSL_DEPS_DIR}/include
+  ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/include
+  ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/liboslexec)
 
 target_include_directories(LLOSL
   PUBLIC
