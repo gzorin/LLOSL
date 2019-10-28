@@ -20,7 +20,7 @@ target_include_directories(LLOSL
   ${LLVM_INCLUDE_DIRS}
   ${OPENEXR_INCLUDE_DIR})
 
-llvm_map_components_to_libnames(LLVM_LIBRARIES core support bitreader bitwriter mcjit)
+llvm_map_components_to_libnames(LLVM_LIBRARIES core support bitreader bitwriter mcjit transformutils passes)
 
 target_link_libraries(LLOSL
   LLOSLIR

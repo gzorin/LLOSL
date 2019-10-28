@@ -46,6 +46,7 @@ install(
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(lib/IR)
+add_subdirectory(tools/llosl-gen)
 
 include(CMakePackageConfigHelpers)
 
