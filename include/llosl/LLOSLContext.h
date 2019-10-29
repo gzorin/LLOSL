@@ -17,6 +17,7 @@ namespace llosl {
 class Builder;
 class BXDF;
 class LLOSLContextImpl;
+class Shader;
 class ShaderGroup;
 class UberBXDF;
 
@@ -28,6 +29,8 @@ public:
   enum class Error : int {
       AlreadyBuilding = 1
   };
+
+  using ShaderListType = llvm::ilist<Shader>;
 
   using BXDFListType = llvm::ilist<BXDF>;
   using UberBXDFListType = llvm::ilist<UberBXDF>;

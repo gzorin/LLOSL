@@ -32,14 +32,14 @@ public:
 
     llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
 
-    llvm::Expected<std::unique_ptr<ShaderGroup> > Finalize();
+    llvm::Expected<Shader *> Finalize();
 
 private:
 
     enum class State {
 	kValid, kInvalidContext, kInvalidError
     };
-    
+
     State d_state = State::kValid;
     LLOSLContextImpl *d_context;
 

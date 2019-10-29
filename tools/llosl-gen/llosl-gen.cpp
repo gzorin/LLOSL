@@ -1,6 +1,6 @@
 #include <llosl/Builder.h>
 #include <llosl/LLOSLContext.h>
-#include <llosl/ShaderGroup.h>
+#include <llosl/Shader.h>
 
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/LLVMContext.h>
@@ -87,8 +87,6 @@ main(int argc, char **argv) {
     llvm::errs() << error_code.message();
     return 1;
   }
-
-  group->module()->dump();
 
   llvm::WriteBitcodeToFile(group->module(), output_file->os());
   output_file->keep();

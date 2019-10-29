@@ -11,8 +11,19 @@
 
 #include <OSL/oslexec.h>
 
+#include <osl_pvt.h>
+#include <oslexec_pvt.h>
+
 #include <map>
 #include <tuple>
+#include <unordered_map>
+
+namespace std {
+    template<>
+    struct hash<OSL::pvt::ShaderMaster::ref> {
+        std::size_t operator()(OSL::pvt::ShaderMaster::ref p) const;
+    };
+}
 
 namespace llvm {
 class FunctionType;
@@ -23,6 +34,7 @@ class Module;
 namespace llosl {
 
 class BuilderImpl;
+class Shader;
 
 class LLOSLContextImpl : private OSL::RendererServices {
 public:
@@ -51,6 +63,8 @@ public:
   llvm::Expected<Builder>          getBuilder();
   void                             resetBuilder(BuilderImpl *);
 
+  llvm::Expected<Shader *>         getShaderFromShaderMaster(OSL::pvt::ShaderMaster::ref);
+
   unsigned                         bxdf_address_space() const { return d_bxdf_address_space; }
 
   std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef, std::size_t);
@@ -66,6 +80,16 @@ public:
   llvm::Function                  *getBXDFComponent(unsigned id) const;
 
   UberBXDF                        *uber_bxdf() const   { return d_uber_bxdf; }
+
+  //
+  using ShaderListType = LLOSLContext::ShaderListType;
+
+  static ShaderListType LLOSLContextImpl::*getSublistAccess(Shader *) {
+      return &LLOSLContextImpl::d_shaders;
+  }
+
+  void                             addShader(Shader *);
+  void                             removeShader(Shader *);
 
   //
   using BXDFListType = LLOSLContext::BXDFListType;
@@ -116,6 +140,10 @@ private:
   OSL::ShadingContext *d_shading_context;
 
   BuilderImpl *d_builder = nullptr;
+
+  ShaderListType d_shaders;
+
+  std::unordered_map<OSL::pvt::ShaderMaster::ref, Shader *> d_shader_masters;
 
   unsigned d_bxdf_address_space = 0;
   BXDFListType d_bxdfs;

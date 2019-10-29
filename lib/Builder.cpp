@@ -3,7 +3,7 @@
 #include "Util.h"
 
 #include <llosl/Builder.h>
-#include <llosl/ShaderGroup.h>
+#include <llosl/Shader.h>
 
 #include <OSL/oslexec.h>
 
@@ -134,7 +134,7 @@ BuilderImpl::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::St
   return std::move(error);
 }
 
-llvm::Expected<std::unique_ptr<ShaderGroup> >
+llvm::Expected<Shader *>
 BuilderImpl::Finalize() {
   switch(d_state) {
   case State::kInvalidContext:
@@ -145,10 +145,8 @@ BuilderImpl::Finalize() {
       break;
   }
 
+#if 0
   auto osl_error_scope = d_context->enterOSLErrorScope();
-
-  OSL::pvt::RuntimeOptimizer rop(d_context->getShadingContext()->shadingsys(), *d_shader_group, nullptr);
-  rop.run();
 
   auto error = osl_error_scope.takeError();
 
@@ -156,25 +154,10 @@ BuilderImpl::Finalize() {
       d_state = State::kInvalidError;
       return std::move(error);
   }
+#endif
 
-  // Satisfy the invariants of OSL::ShaderGroup's destructor:
-  for (int i = 0, n = d_shader_group->nlayers(); i < n; ++i) {
-    auto layer = d_shader_group->layer(i);
-
-    // We no longer needs ops and args -- create empty vectors and
-    // swap with the ones in the instance.
-    OpcodeVec emptyops;
-    layer->ops().swap (emptyops);
-    std::vector<int> emptyargs;
-    layer->args().swap (emptyargs);
-    if (layer->unused()) {
-        // If we'll never use the layer, we don't need the syms at all
-        SymbolVec nosyms;
-        std::swap (layer->symbols(), nosyms);
-    }
-  }
-
-  return llvm::Expected<std::unique_ptr<ShaderGroup> >(std::unique_ptr<ShaderGroup>(new ShaderGroup(*this)));
+  return llvm::Expected<Shader *>(
+        new Shader(*d_context, *d_shader_group));
 }
 
 Builder::Builder(LLOSLContextImpl& context)
@@ -209,7 +192,7 @@ Builder::AddNode(llvm::StringRef usage, llvm::StringRef shadername, llvm::String
     return d_impl->AddNode(usage, shadername, layername);
 }
 
-llvm::Expected<std::unique_ptr<ShaderGroup> >
+llvm::Expected<Shader *>
 Builder::Finalize() {
     return d_impl->Finalize();
 }

@@ -5,6 +5,7 @@ add_library(LLOSL STATIC
   BXDF.cpp
   LLOSLContext.cpp
   OSLErrorHandler.cpp
+  Shader.cpp
   ShaderGroup.cpp
   UberBXDF.cpp)
 

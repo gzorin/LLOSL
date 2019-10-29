@@ -5,15 +5,13 @@ add_executable(llosl-gen
 
 target_compile_features(llosl-gen PUBLIC cxx_std_17)
 
-#target_include_directories(llosl-gen BEFORE
-#  PRIVATE
-#  ${CMAKE_SOURCE_DIR}/include
-#  ${LLOSL_DEPS_DIR}/include
-#  ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/include
-#  ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/liboslexec)
+target_include_directories(llosl-gen BEFORE
+  PRIVATE
+  ${CMAKE_SOURCE_DIR}/include)
 
 target_include_directories(llosl-gen
   PUBLIC
+  ${LLOSL_DEPS_DIR}/include
   ${LLVM_INCLUDE_DIRS}
   ${OPENEXR_INCLUDE_DIR})
 

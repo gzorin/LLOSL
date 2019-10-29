@@ -1,6 +1,7 @@
 #include <llosl/Builder.h>
 #include <llosl/BXDF.h>
 #include <llosl/LLOSLContext.h>
+#include <llosl/Shader.h>
 #include <llosl/ShaderGroup.h>
 #include <llosl/UberBXDF.h>
 
@@ -15,6 +16,11 @@
 
 #include <map>
 #include <utility>
+
+std::size_t
+std::hash<OSL::pvt::ShaderMaster::ref>::operator()(OSL::pvt::ShaderMaster::ref p) const {
+    return std::hash<OSL::pvt::ShaderMaster*>()(p.get());
+}
 
 namespace llosl {
 
@@ -35,6 +41,7 @@ LLOSLContextImpl::~LLOSLContextImpl() {
 
     d_uber_bxdfs.clear();
     d_bxdfs.clear();
+    d_shaders.clear();
     d_shader_groups.clear();
 }
 
@@ -186,6 +193,29 @@ LLOSLContextImpl::getBuilder() {
 void
 LLOSLContextImpl::resetBuilder(BuilderImpl *builder) {
     d_builder = builder;
+}
+
+void
+LLOSLContextImpl::addShader(Shader *shader) {
+    d_shaders.push_back(shader);
+}
+
+void
+LLOSLContextImpl::removeShader(Shader *shader) {
+    d_shaders.remove(shader);
+}
+
+llvm::Expected<Shader *>
+LLOSLContextImpl::getShaderFromShaderMaster(OSL::pvt::ShaderMaster::ref shader_master) {
+    auto it = d_shader_masters.find(shader_master);
+    if (it != d_shader_masters.end()) {
+        return it->second;
+    }
+
+    auto shader = new Shader(*this, *shader_master);
+    d_shader_masters.insert({ shader_master, shader });
+
+    return { shader };
 }
 
 std::tuple<const BXDF *, unsigned, bool>

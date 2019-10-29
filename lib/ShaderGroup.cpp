@@ -1,9 +1,6 @@
 #include "BuilderImpl.h"
 #include "LLOSLContextImpl.h"
 
-#include <osl_pvt.h>
-#include <oslexec_pvt.h>
-
 #include <llosl/IR/BXDFAST.h>
 #include <llosl/IR/BXDFPass.h>
 #include <llosl/IR/ClosureIRPass.h>
@@ -38,59 +35,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     auto& shading_system = d_context->getShadingSystem();
     auto shader_group = builder.shader_group();
 
-    d_module = std::make_unique<llvm::Module>("ShaderGroup", ll_context);
-
-    // Order the 'layers' topologically:
-    std::vector<OSL::pvt::ShaderInstance *> layers;
-
-    struct Frame {
-        int layer;
-        bool back;
-    };
-
-    std::stack<Frame> stack;
-
-    enum class Color {
-        White, Grey, Black
-    };
-
-    llvm::DenseMap<int, Color> color;
-
-    for (int i = 0, n = shader_group->nlayers(); i < n; ++i) {
-        if (color[i] != Color::White) {
-            continue;
-        }
-
-        stack.push({ i, false });
-
-        while (!stack.empty()) {
-            auto [ i, back ] = stack.top();
-            stack.pop();
-
-            auto layer = shader_group->layer(i);
-
-            if (!back) {
-                color[i] = Color::Grey;
-
-                stack.push({ i, true });
-
-                for (const auto& connection : layer->connections()) {
-                    if (color[connection.srclayer] != Color::White) {
-                        continue;
-                    }
-
-                    stack.push({ connection.srclayer, false });
-                }
-            }
-            else {
-                color[i] = Color::Black;
-
-                layers.push_back(layer);
-            }
-        }
-    }
-
-#if 0
     d_module = std::move(shading_system.get_group_module(shader_group.get()));
 
     // Functions and types:
@@ -283,7 +227,6 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     auto shadergroups_md = d_module->getOrInsertNamedMetadata("llosl.shadergroups");
     shadergroups_md->addOperand(d_md.get());
-#endif
 }
 
 ShaderGroup::~ShaderGroup() {
