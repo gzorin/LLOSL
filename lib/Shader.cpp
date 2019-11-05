@@ -3,8 +3,10 @@
 
 #include <llosl/Shader.h>
 
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
@@ -18,24 +20,48 @@ namespace llosl {
 class Shader::IRGenContext {
 public:
 
-    IRGenContext(LLOSLContextImpl&);
+    IRGenContext(LLOSLContextImpl&, llvm::Module&);
 
     llvm::Type *getLLVMType(const OSL::pvt::TypeSpec&);
 
+    void beginFunction(llvm::StringRef, llvm::Type *, llvm::Type *);
+    std::unique_ptr<llvm::Function> endFunction();
+
+    llvm::Function *function() const { assert(d_state == State::Function); return d_function.get(); }
+    llvm::Value    *inputs()   const { assert(d_state == State::Function); return d_inputs;         }
+    llvm::Value    *outputs()  const { assert(d_state == State::Function); return d_outputs;        }
+
+    void insertSymbol(const Symbol&, llvm::Value *);
+
 private:
+
+    enum class State {
+        Initial,
+        Function,
+        Final
+    };
 
     LLOSLContextImpl &d_context;
     llvm::LLVMContext& d_ll_context;
+    llvm::Module& d_module;
+
+    State d_state = State::Initial;
 
     llvm::Type *d_closure_type = nullptr;
     llvm::Type *d_triple_type = nullptr;
     llvm::Type *d_matrix_type = nullptr;
     llvm::Type *d_string_type = nullptr;
+    llvm::DenseMap<int, llvm::Type *> d_struct_types;
+
+    std::unique_ptr<llvm::Function> d_function;
+    llvm::Value *d_inputs = nullptr, *d_outputs = nullptr;
+    llvm::DenseMap<const Symbol *, llvm::Value *> d_symbols;
 };
 
-Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context)
+Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& module)
     : d_context(context)
-    , d_ll_context(d_context.getLLContext()) {
+    , d_ll_context(d_context.getLLContext())
+    , d_module(module) {
 }
 
 llvm::Type *
@@ -44,19 +70,12 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
         if (!d_closure_type) {
             d_closure_type = llvm::StructType::get(d_ll_context,
                 std::vector<llvm::Type *>{
-                    llvm::PointerType::get(llvm::Type::getVoidTy(d_ll_context), 0)
+                    llvm::PointerType::get(
+                        llvm::Type::getInt8Ty(d_ll_context), 0)
                 });
         }
 
         return d_closure_type;
-    }
-
-    if (t.is_void()) {
-        return llvm::Type::getVoidTy(d_ll_context);
-    }
-
-    if (t.is_int()) {
-        return llvm::Type::getInt32Ty(d_ll_context);
     }
 
     if (t.is_float()) {
@@ -65,14 +84,15 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
 
     if (t.is_triple()) {
         if (!d_triple_type) {
-            d_triple_type = llvm::StructType::get(d_ll_context,
-                std::vector<llvm::Type *>{
-                    llvm::ArrayType::get(
-                        llvm::Type::getFloatTy(d_ll_context), 3)
-                });
+            d_triple_type = llvm::VectorType::get(
+                llvm::Type::getFloatTy(d_ll_context), 3);
         }
 
         return d_triple_type;
+    }
+
+    if (t.is_int()) {
+        return llvm::Type::getInt32Ty(d_ll_context);
     }
 
     if (t.is_matrix()) {
@@ -80,12 +100,35 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
             d_matrix_type = llvm::StructType::get(d_ll_context,
                 std::vector<llvm::Type *>{
                     llvm::ArrayType::get(
-                        llvm::ArrayType::get(
+                        llvm::VectorType::get(
                             llvm::Type::getFloatTy(d_ll_context), 4), 4)
                 });
         }
 
         return d_matrix_type;
+    }
+
+    if (t.is_structure()) {
+        if (d_struct_types.count(t.structure()) == 0) {
+            auto struct_spec = t.structspec();
+            std::vector<llvm::Type *> member_types;
+            member_types.reserve(struct_spec->numfields());
+
+            for (int i = 0, n = struct_spec->numfields(); i < n; ++i) {
+                member_types.push_back(
+                    getLLVMType(struct_spec->field(i).type));
+            }
+
+            auto struct_type = llvm::StructType::get(d_ll_context, member_types);
+            d_struct_types[t.structure()] = struct_type;
+        }
+
+        return d_struct_types[t.structure()];
+    }
+
+    if (t.is_sized_array()) {
+        return llvm::ArrayType::get(
+            getLLVMType(t.elementtype()), t.arraylength());
     }
 
     if (t.is_string()) {
@@ -99,7 +142,46 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
         return d_string_type;
     }
 
+    if (t.is_void()) {
+        return llvm::Type::getVoidTy(d_ll_context);
+    }
+
     return nullptr;
+}
+
+void
+Shader::IRGenContext::beginFunction(llvm::StringRef name, llvm::Type *inputs_type, llvm::Type *outputs_type) {
+    assert(d_state == State::Initial);
+
+    d_function.reset(llvm::Function::Create(
+        llvm::FunctionType::get(
+            llvm::Type::getVoidTy(d_ll_context),
+                std::vector<llvm::Type *>{ llvm::PointerType::get(inputs_type,  0),
+                                           llvm::PointerType::get(outputs_type, 0) },
+            false),
+        llvm::GlobalValue::ExternalLinkage, name, &d_module));
+
+    d_inputs = d_function->arg_begin();
+    d_inputs->setName("inputs");
+
+    d_outputs = d_function->arg_begin() + 1;
+    d_outputs->setName("outputs");
+
+    d_state = State::Function;
+}
+
+std::unique_ptr<llvm::Function>
+Shader::IRGenContext::endFunction() {
+    assert(d_state == State::Function);
+
+    d_state = State::Final;
+
+    return std::move(d_function);
+}
+
+void
+Shader::IRGenContext::insertSymbol(const Symbol& symbol, llvm::Value *value) {
+    d_symbols[&symbol] = value;
 }
 
 Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
@@ -194,7 +276,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     StartProcessingShaderGroup(*group);
     d_module = std::make_unique<llvm::Module>(shader_master.shadername(), ll_context);
 
-    IRGenContext irgen_context(*d_context);
+    IRGenContext irgen_context(*d_context, *d_module);
 
     const auto& symbols = instance->symbols();
 
@@ -206,14 +288,15 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         [&input_count, &output_count](const auto& symbol) -> void {
             auto s = symbol.dealias();
 
-            if (s->symtype() == SymTypeParam) {
-                ++input_count;
-                return;
-            }
-
-            if (s->symtype() == SymTypeOutputParam) {
-                ++output_count;
-                return;
+            switch (s->symtype()) {
+                case SymTypeParam:
+                    ++input_count;
+                    return;
+                case SymTypeOutputParam:
+                    ++output_count;
+                    return;
+                default:
+                    break;
             }
         });
 
@@ -227,26 +310,60 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         [&irgen_context, &input_types, &output_types](const auto& symbol) -> void {
             auto s = symbol.dealias();
 
-            if (s->symtype() != SymTypeParam &&
-                s->symtype() != SymTypeOutputParam) {
-                return;
-            }
-
-            auto type = irgen_context.getLLVMType(s->typespec());
-
-            if (s->symtype() == SymTypeParam) {
-                input_types.push_back(type);
-                return;
-            }
-
-            if (s->symtype() == SymTypeOutputParam) {
-                output_types.push_back(type);
-                return;
+            switch (s->symtype()) {
+                case SymTypeParam:
+                    input_types.push_back(irgen_context.getLLVMType(s->typespec()));
+                    return;
+                case SymTypeOutputParam:
+                    output_types.push_back(irgen_context.getLLVMType(s->typespec()));
+                    return;
+                default:
+                    break;
             }
         });
 
     d_inputs_type = llvm::StructType::get(ll_context, input_types);
     d_outputs_type = llvm::StructType::get(ll_context, output_types);
+
+    irgen_context.beginFunction(
+        shader_master.shadername(), d_inputs_type, d_outputs_type);
+
+    llvm::IRBuilder<> builder(ll_context);
+
+    auto entry_block = llvm::BasicBlock::Create(ll_context, "entry", irgen_context.function());
+    builder.SetInsertPoint(entry_block);
+
+    unsigned input_index = 0, output_index = 0;
+
+    std::for_each(
+        symbols.begin(), symbols.end(),
+        [&irgen_context, &builder,
+         &input_index, &output_index](const auto& symbol) -> void {
+            auto s = symbol.dealias();
+            auto name = s->name().string();
+
+            switch (s->symtype()) {
+                case SymTypeParam: {
+                    auto value = builder.CreateStructGEP(nullptr, irgen_context.inputs(), input_index++, name);
+                    irgen_context.insertSymbol(*s, value);
+                } break;
+                case SymTypeOutputParam: {
+                    auto value = builder.CreateStructGEP(nullptr, irgen_context.outputs(), output_index++, name);
+                    irgen_context.insertSymbol(*s, value);
+                } break;
+                case SymTypeLocal:
+                case SymTypeTemp: {
+                    builder.CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
+                } break;
+                default:
+                    break;
+            }
+        });
+
+    auto function = irgen_context.endFunction();
+
+    d_main_function_md.reset(
+        llvm::ValueAsMetadata::get(function.release()));
 
     StopProcessingShaderGroup(*group);
     d_module->dump();
