@@ -22,7 +22,9 @@ public:
 
     IRGenContext(LLOSLContextImpl&, llvm::Module&);
 
-    llvm::Type *getLLVMType(const OSL::pvt::TypeSpec&);
+    llvm::Type     *getLLVMType(const OSL::pvt::TypeSpec&);
+    std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::pvt::TypeSpec&, const void *);
+    llvm::Constant *getLLVMConstant(const Symbol&);
 
     void beginFunction(llvm::StringRef, llvm::Type *, llvm::Type *);
     std::unique_ptr<llvm::Function> endFunction();
@@ -31,7 +33,8 @@ public:
     llvm::Value    *inputs()   const { assert(d_state == State::Function); return d_inputs;         }
     llvm::Value    *outputs()  const { assert(d_state == State::Function); return d_outputs;        }
 
-    void insertSymbol(const Symbol&, llvm::Value *);
+    void insertSymbolAddress(const Symbol&, llvm::Value *);
+    void insertSymbolValue(const Symbol&, llvm::Value *);
 
 private:
 
@@ -55,7 +58,7 @@ private:
 
     std::unique_ptr<llvm::Function> d_function;
     llvm::Value *d_inputs = nullptr, *d_outputs = nullptr;
-    llvm::DenseMap<const Symbol *, llvm::Value *> d_symbols;
+    llvm::DenseMap<const Symbol *, llvm::Value *> d_symbol_addresses, d_symbol_values;
 };
 
 Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& module)
@@ -149,6 +152,140 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     return nullptr;
 }
 
+std::pair<llvm::Constant *, const void *>
+Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *data) {
+    auto llvm_type = getLLVMType(t);
+
+    if (t.is_closure()) {
+        auto llvm_struct_type = llvm::cast<llvm::StructType>(llvm_type);
+
+        return {
+            llvm::ConstantStruct::get(
+                llvm_struct_type,
+                std::vector<llvm::Constant *>{
+                    llvm::ConstantPointerNull::get(
+                        llvm::PointerType::get(
+                            llvm::Type::getInt8Ty(d_ll_context), 0))
+                }),
+            data };
+    }
+
+    if (t.is_float()) {
+        const float *pfloat = reinterpret_cast<const float *>(data);
+
+        return {
+            llvm::ConstantFP::get(
+                llvm_type, pfloat ? *pfloat : 0.0),
+            pfloat ? pfloat + 1 : nullptr };
+    }
+
+    if (t.is_triple()) {
+        struct float3 {
+            float value[3];
+        };
+
+        const float3 *pfloat3 = reinterpret_cast<const float3 *>(data);
+
+        static float3 zero = { { 0.0, 0.0, 0.0 } };
+
+        return {
+            llvm::ConstantDataVector::get(
+                d_ll_context, pfloat3 ? pfloat3->value : zero.value),
+            pfloat3 ? pfloat3 + 1 : nullptr };
+    }
+
+    if (t.is_int()) {
+        const int *pint = reinterpret_cast<const int *>(data);
+
+        return {
+            llvm::ConstantInt::get(
+                llvm_type, pint ? *pint : 0),
+            pint ? pint + 1 : nullptr };
+    }
+
+    if (t.is_matrix()) {
+        auto llvm_array_type = llvm::cast<llvm::ArrayType>(llvm_type);
+
+        struct float4 {
+            float value[4];
+        };
+
+        const float4 *pfloat4 = reinterpret_cast<const float4 *>(data);
+
+        static float4 identity[] = {
+            { { 1.0, 0.0, 0.0, 0.0 } },
+            { { 0.0, 1.0, 0.0, 0.0 } },
+            { { 0.0, 0.0, 1.0, 0.0 } },
+            { { 0.0, 0.0, 0.0, 1.0 } },
+        };
+
+        return {
+            llvm::ConstantArray::get(
+                llvm_array_type, std::vector<llvm::Constant*>{
+                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[0].value : identity[0].value),
+                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[1].value : identity[1].value),
+                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[2].value : identity[2].value),
+                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[3].value : identity[3].value) }),
+            pfloat4 ? pfloat4 + 1 : nullptr };
+    }
+
+    if (t.is_structure()) {
+        auto llvm_struct_type = llvm::cast<llvm::StructType>(llvm_type);
+
+        std::vector<llvm::Constant *> members;
+
+        auto struct_spec = t.structspec();
+
+        for (int i = 0, n = struct_spec->numfields(); i < n; ++i) {
+            auto [ constant, next_data ] = getLLVMConstant(struct_spec->field(i).type, data);
+            members.push_back(constant);
+            data = next_data;
+        }
+
+        return {
+            llvm::ConstantStruct::get(
+                llvm_struct_type, members),
+            data };
+    }
+
+    if (t.is_sized_array()) {
+        auto llvm_array_type = llvm::cast<llvm::ArrayType>(llvm_type);
+
+        std::vector<llvm::Constant *> elements;
+
+        for (int i = 0, n = t.arraylength(); i < n; ++i) {
+            auto [ constant, next_data ] = getLLVMConstant(t.elementtype(), data);
+            elements.push_back(constant);
+            data = next_data;
+        }
+
+        return {
+            llvm::ConstantArray::get(
+                llvm_array_type, elements),
+            data };
+    }
+
+    if (t.is_string()) {
+        auto llvm_struct_type = llvm::cast<llvm::StructType>(llvm_type);
+
+        return {
+            llvm::ConstantStruct::get(
+                llvm_struct_type,
+                std::vector<llvm::Constant *>{
+                    llvm::ConstantInt::get(
+                        llvm::Type::getInt32Ty(d_ll_context), 0xFFFF)
+                }),
+            data };
+    }
+
+    return { nullptr, data };
+}
+
+llvm::Constant *
+Shader::IRGenContext::getLLVMConstant(const Symbol& s) {
+    return getLLVMConstant(s.typespec(), s.data()).first;
+}
+
 void
 Shader::IRGenContext::beginFunction(llvm::StringRef name, llvm::Type *inputs_type, llvm::Type *outputs_type) {
     assert(d_state == State::Initial);
@@ -180,8 +317,13 @@ Shader::IRGenContext::endFunction() {
 }
 
 void
-Shader::IRGenContext::insertSymbol(const Symbol& symbol, llvm::Value *value) {
-    d_symbols[&symbol] = value;
+Shader::IRGenContext::insertSymbolAddress(const Symbol& symbol, llvm::Value *value) {
+    d_symbol_addresses[&symbol] = value;
+}
+
+void
+Shader::IRGenContext::insertSymbolValue(const Symbol& symbol, llvm::Value *value) {
+    d_symbol_values[&symbol] = value;
 }
 
 Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
@@ -340,20 +482,48 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         [&irgen_context, &builder,
          &input_index, &output_index](const auto& symbol) -> void {
             auto s = symbol.dealias();
+            if (!s->everused()) {
+                return;
+            }
+
             auto name = s->name().string();
 
             switch (s->symtype()) {
                 case SymTypeParam: {
-                    auto value = builder.CreateStructGEP(nullptr, irgen_context.inputs(), input_index++, name);
-                    irgen_context.insertSymbol(*s, value);
+                    // Inputs that aren't overwritten can be read once:
+                    if (!s->everwritten()) {
+                        auto address = builder.CreateStructGEP(nullptr, irgen_context.inputs(), input_index++);
+                        auto value = builder.CreateLoad(address, name);
+                        irgen_context.insertSymbolValue(*s, value);
+                        break;
+                    }
+
+                    // Otherwise, store the address of the input:
+                    auto address = builder.CreateStructGEP(nullptr, irgen_context.inputs(), input_index++, name);
+                    irgen_context.insertSymbolAddress(*s, address);
                 } break;
                 case SymTypeOutputParam: {
+                    // Outputs will presuambly be written to, so store their address, too:
                     auto value = builder.CreateStructGEP(nullptr, irgen_context.outputs(), output_index++, name);
-                    irgen_context.insertSymbol(*s, value);
+                    irgen_context.insertSymbolAddress(*s, value);
                 } break;
                 case SymTypeLocal:
                 case SymTypeTemp: {
-                    builder.CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
+                    // Locals need both an address and an initial value:
+                    auto address = builder.CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
+                    auto value = irgen_context.getLLVMConstant(*s);
+                    assert(value);
+
+                    builder.CreateStore(value, address);
+                } break;
+                case SymTypeConst: {
+                    // Constants are inlined:
+                    auto value = irgen_context.getLLVMConstant(*s);
+                    if (!value) {
+                        break;
+                    }
+
+                    irgen_context.insertSymbolValue(*s, value);
                 } break;
                 default:
                     break;
