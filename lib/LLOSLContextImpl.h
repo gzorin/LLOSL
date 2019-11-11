@@ -126,7 +126,9 @@ private:
   void registerClosures();
 
   // OSL::RendererServices overrides:
+#if 0
   llvm::LLVMContext *llvm_context() const override;
+#endif
   int supports(OSL::string_view) const override;
 
   OSLErrorHandler d_osl_error_handler;

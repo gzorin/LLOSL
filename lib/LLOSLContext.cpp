@@ -134,6 +134,7 @@ LLOSLContextImpl::registerClosures() {
             builtins[i].params,
             nullptr, nullptr);
 
+#if 0
         llvm::Type *params_type = nullptr;
 
         d_shading_system->query_closure(
@@ -153,16 +154,19 @@ LLOSLContextImpl::registerClosures() {
             llvm::Function::Create(
                 bxdf_component_type, llvm::GlobalValue::ExternalLinkage,
                 name, d_bxdf_module.get()) });
+#endif
     }
 
     d_uber_bxdf = new UberBXDF(*this);
 }
 
 // OSL::RendererServices overrides:
+#if 0
 llvm::LLVMContext *
 LLOSLContextImpl::llvm_context() const {
     return &d_llcontext;
 }
+#endif
 
 int
 LLOSLContextImpl::supports(OSL::string_view feature) const {

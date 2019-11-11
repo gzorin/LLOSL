@@ -61,7 +61,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <OSL/oslclosure.h>
 #include <OSL/dual.h>
 #include <OSL/dual_vec.h>
-#include <OSL/llvm_util.h>
 #include "osl_pvt.h"
 #include "constantpool.h"
 
@@ -79,7 +78,6 @@ using OIIO::spin_mutex;
 using OIIO::spin_lock;
 using OIIO::ustringHash;
 namespace Strutil = OIIO::Strutil;
-
 
 
 OSL_NAMESPACE_ENTER
@@ -467,11 +465,7 @@ public:
         // Creation callbacks
         PrepareClosureFunc        prepare;
         SetupClosureFunc          setup;
-        // LLVM type to store parameters:
-        llvm::Type               *params_type;
     };
-
-    ClosureRegistry(LLVM_Util& ll);
 
     void register_closure (string_view name, int id, const ClosureParam *params,
                            PrepareClosureFunc prepare, SetupClosureFunc setup);
@@ -485,8 +479,6 @@ public:
     bool empty () const { return m_closure_table.empty(); }
 
 private:
-    LLVM_Util&                m_ll;
-
     // A mapping from name to ID for the compiler
     std::map<ustring, int>    m_closure_name_to_id;
     // And the internal global table, indexed
@@ -652,8 +644,7 @@ public:
     void register_closure (string_view name, int id, const ClosureParam *params,
                            PrepareClosureFunc prepare, SetupClosureFunc setup);
     bool query_closure (const char **name, int *id,
-                        const ClosureParam **params,
-                        llvm::Type **params_type);
+                        const ClosureParam **params);
     const ClosureRegistry::ClosureEntry *find_closure(ustring name) const {
         return m_closure_registry.get_entry(name);
     }
@@ -913,7 +904,6 @@ private:
     PeakCounter<off_t> m_stat_mem_inst_connections;
 
     mutable spin_mutex m_stat_mutex;     ///< Mutex for non-atomic stats
-    LLVM_Util m_ll;
     ClosureRegistry m_closure_registry;
     std::vector<std::weak_ptr<ShaderGroup> > m_all_shader_groups;
     mutable spin_mutex m_all_shader_groups_mutex;
@@ -1294,9 +1284,6 @@ public:
     /// equivalent, in that they may be merged into a single instance?
     bool mergeable (const ShaderInstance &b, const ShaderGroup &g) const;
 
-    void set_function (llvm::Function *function);
-    llvm::Function *get_function() const;
-
 private:
     ShaderMaster::ref m_master;         ///< Reference to the master
     SymOverrideInfoVec m_instoverrides; ///< Instance parameter info
@@ -1319,7 +1306,6 @@ private:
     int m_firstparam, m_lastparam;      ///< Subset of symbols that are params
     int m_maincodebegin, m_maincodeend; ///< Main shader code range
     int m_Psym, m_Nsym;                 ///< Quick lookups of common syms
-    llvm::Function *m_function = nullptr;
 
     friend class ShadingSystemImpl;
     friend class RuntimeOptimizer;
@@ -1572,26 +1558,6 @@ public:
     int raytypes_on ()  const { return m_raytypes_on; }
     int raytypes_off () const { return m_raytypes_off; }
 
-    void set_module(std::unique_ptr<llvm::Module> &&module);
-    std::unique_ptr<llvm::Module> get_module();
-
-    void set_data_type(llvm::Type *);
-    llvm::Type *get_data_type() const;
-
-    void set_globals_type(llvm::Type *);
-    llvm::Type *get_globals_type() const;
-
-    void set_closure_type(llvm::Type *);
-    llvm::Type *get_closure_type() const;
-
-    void set_init_function(llvm::Function *function);
-    llvm::Function *get_init_function() const;
-
-    void set_main_function(llvm::Function *function);
-    llvm::Function *get_main_function() const;
-
-
-
 private:
     // Put all the things that are read-only (after optimization) and
     // needed on every shade execution at the front of the struct, as much
@@ -1613,7 +1579,6 @@ private:
     mutable mutex m_mutex;           ///< Thread-safe optimization
     int m_globals_read = 0;
     int m_globals_write = 0;
-    int m_globals_derivs = 0;
     std::vector<ustring> m_textures_needed;
     std::vector<ustring> m_closures_needed;
     std::vector<ustring> m_globals_needed;  // semi-deprecated
@@ -1634,13 +1599,6 @@ private:
 
     // PTX assembly for compiled ShaderGroup
     std::string m_llvm_ptx_compiled_version;
-
-    std::unique_ptr<llvm::Module> m_module;
-    llvm::Type *m_globals_type = nullptr;
-    llvm::Type *m_closure_type = nullptr;
-    llvm::Type *m_data_type = nullptr;
-    llvm::Function *m_init_function = nullptr;
-    llvm::Function *m_main_function = nullptr;
 
     friend class OSL::pvt::ShadingSystemImpl;
     friend class OSL::pvt::BackendLLVM;
@@ -2040,8 +1998,8 @@ public:
     // Mangle the group and layer into a unique function name
     std::string layer_function_name (const ShaderGroup &group,
                                      const ShaderInstance &inst) {
-        return Strutil::format ("%s::%s", group.name(),
-                                inst.layername());
+        return Strutil::format ("%s_%s_%d", group.name(),
+                                inst.layername(), inst.id());
     }
     std::string layer_function_name () {
         return layer_function_name (group(), *inst());

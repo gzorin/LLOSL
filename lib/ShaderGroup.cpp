@@ -35,12 +35,17 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     auto& shading_system = d_context->getShadingSystem();
     auto shader_group = builder.shader_group();
 
+#if 0
     d_module = std::move(shading_system.get_group_module(shader_group.get()));
+#endif
 
     // Functions and types:
     //
     // Inline layers:
+#if 0
     auto main_function = shading_system.get_group_main_function(shader_group.get());
+#endif
+    llvm::Function *main_function = nullptr;
     auto main_function_name = main_function->getName();
 
     std::vector<llvm::CallInst *> call_instructions;
@@ -77,9 +82,11 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     mpm->add(llvm::createPromoteMemoryToRegisterPass());
     mpm->run(*d_module);
 
+#if 0
     d_closure_type = shading_system.get_group_closure_type(shader_group.get());
     d_globals_type = shading_system.get_group_globals_type(shader_group.get());
     d_data_type = shading_system.get_group_data_type(shader_group.get());
+#endif
 
     // Instrument the function with path information, and collect information
     // about the BXDFs:
@@ -211,8 +218,10 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     builder.CreateRet(index); }
 
+#if 0
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
+#endif
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(mapping_main_function));
 

@@ -39,19 +39,23 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Void&) {}
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Component& node) {
+#if 0
             int id = node.id;
             llvm::Type *params_type = nullptr;
             context.getShadingSystem().query_closure(
                 nullptr, &id, nullptr, &params_type);
             scope_types.push_back(params_type);
+#endif
         }
 
         void operator()(BXDFAST::NodeRef, const BXDFAST::WeightedComponent& node) {
+#if 0
             int id = node.id;
             llvm::Type *params_type = nullptr;
             context.getShadingSystem().query_closure(
                 nullptr, &id, nullptr, &params_type);
             scope_types.push_back(params_type);
+#endif
         }
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Add&) {}
