@@ -26,12 +26,10 @@ public:
     std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::pvt::TypeSpec&, const void *);
     llvm::Constant *getLLVMConstant(const Symbol&);
 
-    void beginFunction(llvm::StringRef, llvm::Type *, llvm::Type *);
+    void beginFunction(llvm::StringRef, llvm::Type *, llvm::ArrayRef<llvm::Type *>);
     std::unique_ptr<llvm::Function> endFunction();
 
     llvm::Function *function() const { assert(d_state == State::Function); return d_function.get(); }
-    llvm::Value    *inputs()   const { assert(d_state == State::Function); return d_inputs;         }
-    llvm::Value    *outputs()  const { assert(d_state == State::Function); return d_outputs;        }
 
     void insertSymbolAddress(const Symbol&, llvm::Value *);
     void insertSymbolValue(const Symbol&, llvm::Value *);
@@ -57,7 +55,6 @@ private:
     llvm::DenseMap<int, llvm::Type *> d_struct_types;
 
     std::unique_ptr<llvm::Function> d_function;
-    llvm::Value *d_inputs = nullptr, *d_outputs = nullptr;
     llvm::DenseMap<const Symbol *, llvm::Value *> d_symbol_addresses, d_symbol_values;
 };
 
@@ -287,22 +284,15 @@ Shader::IRGenContext::getLLVMConstant(const Symbol& s) {
 }
 
 void
-Shader::IRGenContext::beginFunction(llvm::StringRef name, llvm::Type *inputs_type, llvm::Type *outputs_type) {
+Shader::IRGenContext::beginFunction(
+    llvm::StringRef name, llvm::Type *return_type, llvm::ArrayRef<llvm::Type *> param_types) {
     assert(d_state == State::Initial);
 
     d_function.reset(llvm::Function::Create(
         llvm::FunctionType::get(
-            llvm::Type::getVoidTy(d_ll_context),
-                std::vector<llvm::Type *>{ llvm::PointerType::get(inputs_type,  0),
-                                           llvm::PointerType::get(outputs_type, 0) },
+            return_type, param_types,
             false),
         llvm::GlobalValue::ExternalLinkage, name, &d_module));
-
-    d_inputs = d_function->arg_begin();
-    d_inputs->setName("inputs");
-
-    d_outputs = d_function->arg_begin() + 1;
-    d_outputs->setName("outputs");
 
     d_state = State::Function;
 }
@@ -443,44 +433,80 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         });
 
     // Create llvm::StructTypes for inputs and outputs:
-    std::vector<llvm::Type *> input_types, output_types;
+    std::vector<llvm::Type *> input_types, return_types;
     input_types.reserve(input_count);
-    output_types.reserve(output_count);
+    return_types.reserve(output_count);
 
     std::for_each(
         symbols.begin(), symbols.end(),
-        [&irgen_context, &input_types, &output_types](const auto& symbol) -> void {
+        [&irgen_context, &input_types, &return_types](const auto& symbol) -> void {
             auto s = symbol.dealias();
 
             switch (s->symtype()) {
-                case SymTypeParam:
-                    input_types.push_back(irgen_context.getLLVMType(s->typespec()));
-                    return;
-                case SymTypeOutputParam:
-                    output_types.push_back(irgen_context.getLLVMType(s->typespec()));
-                    return;
+                case SymTypeParam: {
+                    // Some inputs are passed by reference:
+                    const auto& t = s->typespec();
+
+                    if (t.is_closure() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        input_types.push_back(
+                            llvm::PointerType::get(
+                                irgen_context.getLLVMType(t), 0));
+                    }
+                    else {
+                        input_types.push_back(irgen_context.getLLVMType(t));
+                    }
+
+                } return;
+                case SymTypeOutputParam: {
+                    return_types.push_back(irgen_context.getLLVMType(s->typespec()));
+                } return;
                 default:
                     break;
             }
         });
 
-    d_inputs_type = llvm::StructType::get(ll_context, input_types);
-    d_outputs_type = llvm::StructType::get(ll_context, output_types);
+    llvm::Type *return_type =
+        (output_count > 0)
+        ? llvm::StructType::get(ll_context, return_types)
+        : llvm::Type::getVoidTy(ll_context);
 
     irgen_context.beginFunction(
-        shader_master.shadername(), d_inputs_type, d_outputs_type);
+        shader_master.shadername(), return_type, input_types);
 
     llvm::IRBuilder<> builder(ll_context);
 
+    // Create the 'entry' block:
     auto entry_block = llvm::BasicBlock::Create(ll_context, "entry", irgen_context.function());
     builder.SetInsertPoint(entry_block);
 
-    unsigned input_index = 0, output_index = 0;
+    // Allocate space for the result value:
+    llvm::Value *result =
+        (output_count > 0)
+        ? builder.CreateAlloca(return_type, nullptr, "result")
+        : nullptr;
+
+    // Create the 'exit' block:
+    auto exit_block = llvm::BasicBlock::Create(ll_context, "exit", irgen_context.function());
+    builder.SetInsertPoint(exit_block);
+
+    if (output_count > 0) {
+        builder.CreateRet(
+            builder.CreateLoad(result));
+    }
+    else {
+        builder.CreateRetVoid();
+    }
+
+    // Initialize symbols:
+    builder.SetInsertPoint(entry_block);
+
+    auto input_it = irgen_context.function()->arg_begin();
+    unsigned output_index = 0;
 
     std::for_each(
         symbols.begin(), symbols.end(),
         [&irgen_context, &builder,
-         &input_index, &output_index](const auto& symbol) -> void {
+         &input_it, result, &output_index](const auto& symbol) -> void {
             auto s = symbol.dealias();
             if (!s->everused()) {
                 return;
@@ -490,21 +516,21 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             switch (s->symtype()) {
                 case SymTypeParam: {
-                    // Inputs that aren't overwritten can be read once:
-                    if (!s->everwritten()) {
-                        auto address = builder.CreateStructGEP(nullptr, irgen_context.inputs(), input_index++);
-                        auto value = builder.CreateLoad(address, name);
-                        irgen_context.insertSymbolValue(*s, value);
-                        break;
-                    }
+                    auto value = input_it++;
+                    value->setName(name);
 
-                    // Otherwise, store the address of the input:
-                    auto address = builder.CreateStructGEP(nullptr, irgen_context.inputs(), input_index++, name);
-                    irgen_context.insertSymbolAddress(*s, address);
+                    // Some inputs are passed by reference:
+                    const auto& t = s->typespec();
+
+                    if (t.is_closure() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        irgen_context.insertSymbolAddress(*s, value);
+                    }
+                    else {
+                        irgen_context.insertSymbolValue(*s, value);
+                    }
                 } break;
                 case SymTypeOutputParam: {
-                    // Outputs will presuambly be written to, so store their address, too:
-                    auto value = builder.CreateStructGEP(nullptr, irgen_context.outputs(), output_index++, name);
+                    auto value = builder.CreateStructGEP(nullptr, result, output_index++, name);
                     irgen_context.insertSymbolAddress(*s, value);
                 } break;
                 case SymTypeLocal:

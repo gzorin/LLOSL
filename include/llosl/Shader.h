@@ -44,9 +44,6 @@ public:
     const llvm::Module *module() const { return d_module.get(); }
     llvm::Module       *module()       { return d_module.get(); }
 
-    llvm::Type *inputs_type() const { return d_inputs_type; }
-    llvm::Type *outputs_type() const { return d_outputs_type; }
-
     const llvm::Function *main_function() const;
 
     class Parameter {
@@ -97,7 +94,6 @@ private:
     LLOSLContextImpl *d_context;
 
     std::unique_ptr<llvm::Module> d_module;
-    llvm::Type *d_inputs_type = nullptr, *d_outputs_type = nullptr;
 
     std::size_t d_parameter_count = 0;
     Parameter *d_parameters = nullptr;
