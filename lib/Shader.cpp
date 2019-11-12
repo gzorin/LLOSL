@@ -526,7 +526,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     // Some inputs are passed by reference:
                     const auto& t = s->typespec();
 
-                    if (t.is_closure() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (t.is_closure() || t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
                         input_types.push_back(
                             llvm::PointerType::get(
                                 irgen_context.getLLVMType(t), 0));
@@ -606,7 +606,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     const auto& t = s->typespec();
 
                     if (s->everwritten() ||
-                        t.is_closure() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        t.is_closure() || t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
                         auto address = builder.CreateStructGEP(nullptr, shaderglobals, it->second, name);
                         irgen_context.insertSymbolAddress(*s, address);
                     }
@@ -623,7 +623,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     // Some inputs are passed by reference:
                     const auto& t = s->typespec();
 
-                    if (t.is_closure() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (t.is_closure() || t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
                         irgen_context.insertSymbolAddress(*s, value);
                     }
                     else {
