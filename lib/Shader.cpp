@@ -15,6 +15,8 @@
 #include <oslexec_pvt.h>
 #include <runtimeoptimize.h>
 
+#include <map>
+
 namespace llosl {
 
 class Shader::IRGenContext {
@@ -23,6 +25,12 @@ public:
     IRGenContext(LLOSLContextImpl&, llvm::Module&);
 
     llvm::Type     *getLLVMType(const OSL::pvt::TypeSpec&);
+
+    using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
+
+    llvm::Type                *getShaderGlobalsType();
+    const ShaderGlobalsIndex&  getShaderGlobalsIndex();
+
     std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::pvt::TypeSpec&, const void *);
     llvm::Constant *getLLVMConstant(const Symbol&);
 
@@ -53,6 +61,7 @@ private:
     llvm::Type *d_matrix_type = nullptr;
     llvm::Type *d_string_type = nullptr;
     llvm::DenseMap<int, llvm::Type *> d_struct_types;
+    llvm::Type *d_shaderglobals_type = nullptr;
 
     std::unique_ptr<llvm::Function> d_function;
     llvm::DenseMap<const Symbol *, llvm::Value *> d_symbol_addresses, d_symbol_values;
@@ -68,11 +77,13 @@ llvm::Type *
 Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     if (t.is_closure()) {
         if (!d_closure_type) {
-            d_closure_type = llvm::StructType::get(d_ll_context,
+            d_closure_type = llvm::StructType::create(
+                d_ll_context,
                 std::vector<llvm::Type *>{
                     llvm::PointerType::get(
                         llvm::Type::getInt8Ty(d_ll_context), 0)
-                });
+                },
+                "OSL::Closure");
         }
 
         return d_closure_type;
@@ -97,12 +108,14 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
 
     if (t.is_matrix()) {
         if (!d_matrix_type) {
-            d_matrix_type = llvm::StructType::get(d_ll_context,
+            d_matrix_type = llvm::StructType::create(
+                d_ll_context,
                 std::vector<llvm::Type *>{
                     llvm::ArrayType::get(
                         llvm::VectorType::get(
                             llvm::Type::getFloatTy(d_ll_context), 4), 4)
-                });
+                },
+                "OSL::Matrix");
         }
 
         return d_matrix_type;
@@ -133,10 +146,12 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
 
     if (t.is_string()) {
         if (!d_string_type) {
-            d_string_type = llvm::StructType::get(d_ll_context,
+            d_string_type = llvm::StructType::create(
+                d_ll_context,
                 std::vector<llvm::Type *>{
                     llvm::Type::getInt32Ty(d_ll_context)
-                });
+                },
+                "OSL::String");
         }
 
         return d_string_type;
@@ -147,6 +162,66 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     }
 
     return nullptr;
+}
+
+llvm::Type *
+Shader::IRGenContext::getShaderGlobalsType() {
+    if (!d_shaderglobals_type) {
+        d_shaderglobals_type = llvm::StructType::create(
+            d_ll_context,
+            std::vector<llvm::Type *>{
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // P
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // dPdx
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // dPdy
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // dPdz
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // I
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dIdx
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dIdy
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeNormal)),      // N
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeNormal)),      // Ng
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // u
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dudx
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dudy
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // v
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dvdx
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dvdy
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dPdu
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dPdv
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // time
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dtime
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dPdtime
+                llvm::PointerType::get(
+                        llvm::Type::getInt8Ty(d_ll_context), 0),            // context
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeMatrix)),      // object2common
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeMatrix)),      // shader2common
+                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeColor, true)), // Ci
+            },
+            "OSL::ShaderGlobals");
+    }
+
+    return d_shaderglobals_type;
+}
+
+const Shader::IRGenContext::ShaderGlobalsIndex&
+Shader::IRGenContext::getShaderGlobalsIndex() {
+    static ShaderGlobalsIndex index = {
+        { OSL::ustring("P"),              0 },
+        { OSL::ustring("I"),              4 },
+        { OSL::ustring("N"),              7 },
+        { OSL::ustring("Ng"),             8 },
+        { OSL::ustring("u"),              9 },
+        { OSL::ustring("v"),             12 },
+        { OSL::ustring("dPdu"),          15 },
+        { OSL::ustring("dPdv"),          16 },
+        { OSL::ustring("time"),          17 },
+        { OSL::ustring("dtime"),         18 },
+        { OSL::ustring("dPdtime"),       19 },
+        { OSL::ustring("object2common"), 21 },
+        { OSL::ustring("shader2common"), 22 },
+        { OSL::ustring("Ci"),            23 }
+    };
+
+    return index;
 }
 
 std::pair<llvm::Constant *, const void *>
@@ -434,8 +509,12 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     // Create llvm::StructTypes for inputs and outputs:
     std::vector<llvm::Type *> input_types, return_types;
-    input_types.reserve(input_count);
+    input_types.reserve(input_count + 1);
     return_types.reserve(output_count);
+
+    input_types.push_back(
+        llvm::PointerType::get(
+            irgen_context.getShaderGlobalsType(), 0));
 
     std::for_each(
         symbols.begin(), symbols.end(),
@@ -501,12 +580,16 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     builder.SetInsertPoint(entry_block);
 
     auto input_it = irgen_context.function()->arg_begin();
+
+    auto shaderglobals = input_it++;
+    shaderglobals->setName("shaderglobals");
+
     unsigned output_index = 0;
 
     std::for_each(
         symbols.begin(), symbols.end(),
         [&irgen_context, &builder,
-         &input_it, result, &output_index](const auto& symbol) -> void {
+         shaderglobals, &input_it, result, &output_index](const auto& symbol) -> void {
             auto s = symbol.dealias();
             if (!s->everused()) {
                 return;
@@ -515,6 +598,24 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             auto name = s->name().string();
 
             switch (s->symtype()) {
+                case SymTypeGlobal: {
+                    const auto& index = irgen_context.getShaderGlobalsIndex();
+                    auto it = index.find(s->name());
+                    assert(it != index.end());
+
+                    const auto& t = s->typespec();
+
+                    if (s->everwritten() ||
+                        t.is_closure() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        auto address = builder.CreateStructGEP(nullptr, shaderglobals, it->second, name);
+                        irgen_context.insertSymbolAddress(*s, address);
+                    }
+                    else {
+                        auto address = builder.CreateStructGEP(nullptr, shaderglobals, it->second);
+                        auto value = builder.CreateLoad(address, name);
+                        irgen_context.insertSymbolValue(*s, value);
+                    }
+                } break;
                 case SymTypeParam: {
                     auto value = input_it++;
                     value->setName(name);
