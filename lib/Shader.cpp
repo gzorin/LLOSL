@@ -16,6 +16,17 @@
 #include <runtimeoptimize.h>
 
 #include <map>
+#include <stack>
+
+namespace { namespace Ops {
+
+#define MAKE_OPCODE(s) ustring s(#s);
+
+MAKE_OPCODE(end);
+MAKE_OPCODE(nop);
+MAKE_OPCODE(assign);
+
+} }
 
 namespace llosl {
 
@@ -37,16 +48,42 @@ public:
     void beginFunction(llvm::StringRef, llvm::Type *, llvm::ArrayRef<llvm::Type *>);
     std::unique_ptr<llvm::Function> endFunction();
 
-    llvm::Function *function() const { assert(d_state == State::Function); return d_function.get(); }
+    llvm::Function *function() const {
+        assert(d_state == State::Function || d_state == State::Block);
+
+        return d_function.get();
+    }
 
     void insertSymbolAddress(const Symbol&, llvm::Value *);
     void insertSymbolValue(const Symbol&, llvm::Value *);
+
+    llvm::Value *getSymbolAddress(const Symbol&);
+    llvm::Value *getSymbolValue(const Symbol&);
+
+    llvm::BasicBlock *createBlock(llvm::StringRef = llvm::StringRef());
+    void beginBlock(llvm::BasicBlock *);
+    void continueBlock(llvm::BasicBlock *);
+    void endBlock();
+
+    llvm::BasicBlock *block() const {
+        assert(d_state == State::Block);
+        assert(d_block);
+
+        return d_block;
+    }
+
+    llvm::IRBuilder<>& builder() const {
+        assert(d_builder);
+
+        return *d_builder;
+    }
 
 private:
 
     enum class State {
         Initial,
         Function,
+        Block,
         Final
     };
 
@@ -65,6 +102,9 @@ private:
 
     std::unique_ptr<llvm::Function> d_function;
     llvm::DenseMap<const Symbol *, llvm::Value *> d_symbol_addresses, d_symbol_values;
+
+    llvm::BasicBlock *d_block = nullptr;
+    std::unique_ptr<llvm::IRBuilder<> > d_builder;
 };
 
 Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& module)
@@ -77,13 +117,8 @@ llvm::Type *
 Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     if (t.is_closure()) {
         if (!d_closure_type) {
-            d_closure_type = llvm::StructType::create(
-                d_ll_context,
-                std::vector<llvm::Type *>{
-                    llvm::PointerType::get(
-                        llvm::Type::getInt8Ty(d_ll_context), 0)
-                },
-                "OSL::Closure");
+            d_closure_type = llvm::PointerType::get(
+                llvm::Type::getInt8Ty(d_ll_context), 0);
         }
 
         return d_closure_type;
@@ -229,16 +264,10 @@ Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *d
     auto llvm_type = getLLVMType(t);
 
     if (t.is_closure()) {
-        auto llvm_struct_type = llvm::cast<llvm::StructType>(llvm_type);
-
         return {
-            llvm::ConstantStruct::get(
-                llvm_struct_type,
-                std::vector<llvm::Constant *>{
-                    llvm::ConstantPointerNull::get(
-                        llvm::PointerType::get(
-                            llvm::Type::getInt8Ty(d_ll_context), 0))
-                }),
+            llvm::ConstantPointerNull::get(
+                llvm::PointerType::get(
+                    llvm::Type::getInt8Ty(d_ll_context), 0)),
             data };
     }
 
@@ -391,6 +420,56 @@ Shader::IRGenContext::insertSymbolValue(const Symbol& symbol, llvm::Value *value
     d_symbol_values[&symbol] = value;
 }
 
+llvm::Value *
+Shader::IRGenContext::getSymbolAddress(const Symbol& symbol) {
+    assert(d_symbol_addresses.count(&symbol) > 0);
+    return d_symbol_addresses[&symbol];
+}
+
+llvm::Value *
+Shader::IRGenContext::getSymbolValue(const Symbol& symbol) {
+    if (d_symbol_values.count(&symbol) > 0) {
+        return d_symbol_values[&symbol];
+    }
+
+    return builder().CreateLoad(getSymbolAddress(symbol));
+}
+
+llvm::BasicBlock *
+Shader::IRGenContext::createBlock(llvm::StringRef name) {
+    assert(d_state == State::Function || d_state == State::Block);
+
+    return llvm::BasicBlock::Create(d_ll_context, name, d_function.get());
+}
+
+void
+Shader::IRGenContext::beginBlock(llvm::BasicBlock *block) {
+    assert(d_state == State::Function);
+
+    d_block = block;
+    d_builder.reset(new llvm::IRBuilder<>(d_block));
+
+    d_state = State::Block;
+}
+
+void
+Shader::IRGenContext::continueBlock(llvm::BasicBlock *block) {
+    assert(d_state == State::Block);
+
+    d_block = block;
+    d_builder->SetInsertPoint(d_block);
+}
+
+void
+Shader::IRGenContext::endBlock() {
+    assert(d_state == State::Block);
+
+    d_block = nullptr;
+    d_builder.reset();
+
+    d_state = State::Function;
+}
+
 Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
     : d_context(&context) {
     auto& ll_context = d_context->getLLContext();
@@ -526,7 +605,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     // Some inputs are passed by reference:
                     const auto& t = s->typespec();
 
-                    if (t.is_closure() || t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
                         input_types.push_back(
                             llvm::PointerType::get(
                                 irgen_context.getLLVMType(t), 0));
@@ -552,33 +631,17 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     irgen_context.beginFunction(
         shader_master.shadername(), return_type, input_types);
 
-    llvm::IRBuilder<> builder(ll_context);
-
     // Create the 'entry' block:
-    auto entry_block = llvm::BasicBlock::Create(ll_context, "entry", irgen_context.function());
-    builder.SetInsertPoint(entry_block);
+    auto entry_block = irgen_context.createBlock("entry");
+    irgen_context.beginBlock(entry_block);
 
     // Allocate space for the result value:
     llvm::Value *result =
         (output_count > 0)
-        ? builder.CreateAlloca(return_type, nullptr, "result")
+        ? irgen_context.builder().CreateAlloca(return_type, nullptr, "result")
         : nullptr;
 
-    // Create the 'exit' block:
-    auto exit_block = llvm::BasicBlock::Create(ll_context, "exit", irgen_context.function());
-    builder.SetInsertPoint(exit_block);
-
-    if (output_count > 0) {
-        builder.CreateRet(
-            builder.CreateLoad(result));
-    }
-    else {
-        builder.CreateRetVoid();
-    }
-
     // Initialize symbols:
-    builder.SetInsertPoint(entry_block);
-
     auto input_it = irgen_context.function()->arg_begin();
 
     auto shaderglobals = input_it++;
@@ -588,7 +651,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     std::for_each(
         symbols.begin(), symbols.end(),
-        [&irgen_context, &builder,
+        [&irgen_context,
          shaderglobals, &input_it, result, &output_index](const auto& symbol) -> void {
             auto s = symbol.dealias();
             if (!s->everused()) {
@@ -596,6 +659,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             }
 
             auto name = s->name().string();
+            const auto& t = s->typespec();
 
             switch (s->symtype()) {
                 case SymTypeGlobal: {
@@ -603,16 +667,15 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     auto it = index.find(s->name());
                     assert(it != index.end());
 
-                    const auto& t = s->typespec();
+                    auto address = irgen_context.builder().CreateStructGEP(nullptr, shaderglobals, it->second);
 
                     if (s->everwritten() ||
-                        t.is_closure() || t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
-                        auto address = builder.CreateStructGEP(nullptr, shaderglobals, it->second, name);
+                        t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        address->setName(name);
                         irgen_context.insertSymbolAddress(*s, address);
                     }
                     else {
-                        auto address = builder.CreateStructGEP(nullptr, shaderglobals, it->second);
-                        auto value = builder.CreateLoad(address, name);
+                        auto value = irgen_context.builder().CreateLoad(address, name);
                         irgen_context.insertSymbolValue(*s, value);
                     }
                 } break;
@@ -621,9 +684,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     value->setName(name);
 
                     // Some inputs are passed by reference:
-                    const auto& t = s->typespec();
-
-                    if (t.is_closure() || t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
                         irgen_context.insertSymbolAddress(*s, value);
                     }
                     else {
@@ -631,17 +692,18 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     }
                 } break;
                 case SymTypeOutputParam: {
-                    auto value = builder.CreateStructGEP(nullptr, result, output_index++, name);
+                    auto value = irgen_context.builder().CreateStructGEP(nullptr, result, output_index++, name);
                     irgen_context.insertSymbolAddress(*s, value);
                 } break;
                 case SymTypeLocal:
                 case SymTypeTemp: {
                     // Locals need both an address and an initial value:
-                    auto address = builder.CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
+                    auto address = irgen_context.builder().CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
                     auto value = irgen_context.getLLVMConstant(*s);
                     assert(value);
 
-                    builder.CreateStore(value, address);
+                    irgen_context.builder().CreateStore(value, address);
+                    irgen_context.insertSymbolAddress(*s, address);
                 } break;
                 case SymTypeConst: {
                     // Constants are inlined:
@@ -650,12 +712,96 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         break;
                     }
 
+                    // Some constants will be passed on by reference:
+                    if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        auto address = irgen_context.builder().CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
+                        irgen_context.builder().CreateStore(value, address);
+                        irgen_context.insertSymbolAddress(*s, address);
+                    }
+                    else {
+                        irgen_context.insertSymbolValue(*s, value);
+                    }
+
                     irgen_context.insertSymbolValue(*s, value);
                 } break;
                 default:
                     break;
             }
         });
+
+    auto body_block = irgen_context.createBlock();
+    auto branch = irgen_context.builder().CreateBr(body_block);
+    irgen_context.endBlock();
+
+    // Create the 'exit' block:
+    auto exit_block = irgen_context.createBlock("exit");
+    irgen_context.beginBlock(exit_block);
+
+    if (output_count > 0) {
+        irgen_context.builder().CreateRet(
+            irgen_context.builder().CreateLoad(result));
+    }
+    else {
+        irgen_context.builder().CreateRetVoid();
+    }
+
+    irgen_context.endBlock();
+
+    //
+    struct Frame {
+        llvm::BasicBlock *block = nullptr;
+        llvm::BasicBlock *merge_block = nullptr;
+        int opcode_index = 0, opcode_end = 0;
+    };
+
+    std::stack<Frame> stack;
+
+    const auto& ops  = instance->ops();
+    const auto& args = instance->args();
+
+    stack.push({
+        body_block, exit_block,
+        instance->maincodebegin(), instance->maincodeend()
+    });
+
+    while (!stack.empty()) {
+        auto [ block, merge_block, opcode_index, opcode_end ] = stack.top();
+        stack.pop();
+
+        irgen_context.beginBlock(block);
+
+        while (opcode_index < opcode_end) {
+            const auto& opcode = ops[opcode_index++];
+            const auto& opname = opcode.opname();
+
+            if (opname == Ops::end) {
+                irgen_context.builder().CreateBr(exit_block);
+                break;
+            }
+
+            if (opname == Ops::nop) {
+                continue;
+            }
+
+            std::vector<const Symbol *> opargs;
+            opargs.reserve(opcode.nargs());
+            for (int i = opcode.firstarg(), n = opcode.nargs(); n > 0; ++i, --n) {
+                opargs.push_back(symbols[args[i]].dealias());
+            }
+
+            if (opname == Ops::assign) {
+                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
+                auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+                irgen_context.builder().CreateStore(rvalue, lvalue);
+
+                continue;
+            }
+
+            std::cerr << opname.string() << std::endl;
+        }
+
+        irgen_context.endBlock();
+    }
 
     auto function = irgen_context.endFunction();
 
