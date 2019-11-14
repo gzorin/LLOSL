@@ -4,7 +4,6 @@
 #include <llosl/Shader.h>
 
 #include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Metadata.h>
@@ -41,6 +40,8 @@ public:
 
     llvm::Type                *getShaderGlobalsType();
     const ShaderGlobalsIndex&  getShaderGlobalsIndex();
+
+    llvm::Constant *getLLVMDefaultConstant(const OSL::pvt::TypeSpec&);
 
     std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::pvt::TypeSpec&, const void *);
     llvm::Constant *getLLVMConstant(const Symbol&);
@@ -94,8 +95,6 @@ private:
     State d_state = State::Initial;
 
     llvm::Type *d_closure_type = nullptr;
-    llvm::Type *d_triple_type = nullptr;
-    llvm::Type *d_matrix_type = nullptr;
     llvm::Type *d_string_type = nullptr;
     llvm::DenseMap<int, llvm::Type *> d_struct_types;
     llvm::Type *d_shaderglobals_type = nullptr;
@@ -124,39 +123,7 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
         return d_closure_type;
     }
 
-    if (t.is_float()) {
-        return llvm::Type::getFloatTy(d_ll_context);
-    }
-
-    if (t.is_triple()) {
-        if (!d_triple_type) {
-            d_triple_type = llvm::VectorType::get(
-                llvm::Type::getFloatTy(d_ll_context), 3);
-        }
-
-        return d_triple_type;
-    }
-
-    if (t.is_int()) {
-        return llvm::Type::getInt32Ty(d_ll_context);
-    }
-
-    if (t.is_matrix()) {
-        if (!d_matrix_type) {
-            d_matrix_type = llvm::StructType::create(
-                d_ll_context,
-                std::vector<llvm::Type *>{
-                    llvm::ArrayType::get(
-                        llvm::VectorType::get(
-                            llvm::Type::getFloatTy(d_ll_context), 4), 4)
-                },
-                "OSL::Matrix");
-        }
-
-        return d_matrix_type;
-    }
-
-    if (t.is_structure()) {
+    if (t.is_structure_based()) {
         if (d_struct_types.count(t.structure()) == 0) {
             auto struct_spec = t.structspec();
             std::vector<llvm::Type *> member_types;
@@ -171,32 +138,15 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
             d_struct_types[t.structure()] = struct_type;
         }
 
+        if (t.is_structure_array()) {
+            return llvm::ArrayType::get(
+                d_struct_types[t.structure()], t.arraylength());
+        }
+
         return d_struct_types[t.structure()];
     }
 
-    if (t.is_sized_array()) {
-        return llvm::ArrayType::get(
-            getLLVMType(t.elementtype()), t.arraylength());
-    }
-
-    if (t.is_string()) {
-        if (!d_string_type) {
-            d_string_type = llvm::StructType::create(
-                d_ll_context,
-                std::vector<llvm::Type *>{
-                    llvm::Type::getInt32Ty(d_ll_context)
-                },
-                "OSL::String");
-        }
-
-        return d_string_type;
-    }
-
-    if (t.is_void()) {
-        return llvm::Type::getVoidTy(d_ll_context);
-    }
-
-    return nullptr;
+    return d_context.getLLVMType(t.simpletype());
 }
 
 llvm::Type *
@@ -205,30 +155,30 @@ Shader::IRGenContext::getShaderGlobalsType() {
         d_shaderglobals_type = llvm::StructType::create(
             d_ll_context,
             std::vector<llvm::Type *>{
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // P
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // dPdx
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // dPdy
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypePoint)),       // dPdz
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // I
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dIdx
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dIdy
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeNormal)),      // N
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeNormal)),      // Ng
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // u
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dudx
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dudy
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // v
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dvdx
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dvdy
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dPdu
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dPdv
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // time
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeFloat)),       // dtime
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeVector)),      // dPdtime
+                getLLVMType(TypeDesc::TypePoint),       // P
+                getLLVMType(TypeDesc::TypePoint),       // dPdx
+                getLLVMType(TypeDesc::TypePoint),       // dPdy
+                getLLVMType(TypeDesc::TypePoint),       // dPdz
+                getLLVMType(TypeDesc::TypeVector),      // I
+                getLLVMType(TypeDesc::TypeVector),      // dIdx
+                getLLVMType(TypeDesc::TypeVector),      // dIdy
+                getLLVMType(TypeDesc::TypeNormal),      // N
+                getLLVMType(TypeDesc::TypeNormal),      // Ng
+                getLLVMType(TypeDesc::TypeFloat),       // u
+                getLLVMType(TypeDesc::TypeFloat),       // dudx
+                getLLVMType(TypeDesc::TypeFloat),       // dudy
+                getLLVMType(TypeDesc::TypeFloat),       // v
+                getLLVMType(TypeDesc::TypeFloat),       // dvdx
+                getLLVMType(TypeDesc::TypeFloat),       // dvdy
+                getLLVMType(TypeDesc::TypeVector),      // dPdu
+                getLLVMType(TypeDesc::TypeVector),      // dPdv
+                getLLVMType(TypeDesc::TypeFloat),       // time
+                getLLVMType(TypeDesc::TypeFloat),       // dtime
+                getLLVMType(TypeDesc::TypeVector),      // dPdtime
                 llvm::PointerType::get(
                         llvm::Type::getInt8Ty(d_ll_context), 0),            // context
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeMatrix)),      // object2common
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeMatrix)),      // shader2common
+                getLLVMType(TypeDesc::TypeMatrix),      // object2common
+                getLLVMType(TypeDesc::TypeMatrix),      // shader2common
                 getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeColor, true)), // Ci
             },
             "OSL::ShaderGlobals");
@@ -259,132 +209,118 @@ Shader::IRGenContext::getShaderGlobalsIndex() {
     return index;
 }
 
-std::pair<llvm::Constant *, const void *>
-Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *data) {
+llvm::Constant *
+Shader::IRGenContext::getLLVMDefaultConstant(const OSL::pvt::TypeSpec& t) {
     auto llvm_type = getLLVMType(t);
 
     if (t.is_closure()) {
+        // TODO
+        return
+            llvm::ConstantPointerNull::get(
+                llvm::PointerType::get(
+                    llvm::Type::getInt8Ty(d_ll_context), 0));
+    }
+
+    if (t.is_structure_array()) {
+        auto struct_spec = t.structspec();
+        OSL::pvt::TypeSpec element_type(nullptr, t.structure());
+
+        std::vector<llvm::Constant *> elements(
+            t.arraylength(), getLLVMDefaultConstant(element_type));
+
+        return
+            llvm::ConstantArray::get(
+                llvm::cast<llvm::ArrayType>(llvm_type), elements);
+    }
+
+    if (t.is_structure_based()) {
+        auto struct_spec = t.structspec();
+
+        std::vector<llvm::Constant *> members(struct_spec->numfields(), nullptr);
+        int i = 0;
+
+        std::generate_n(
+            members.begin(), struct_spec->numfields(),
+            [this, struct_spec, &i]() -> llvm::Constant * {
+                return getLLVMDefaultConstant(struct_spec->field(i++).type);
+            });
+
+        return
+            llvm::ConstantStruct::get(
+                llvm::cast<llvm::StructType>(llvm_type),
+                members);
+    }
+
+    return d_context.getLLVMDefaultConstant(t.simpletype());
+}
+
+std::pair<llvm::Constant *, const void *>
+Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *p) {
+    auto llvm_type = getLLVMType(t);
+
+    if (t.is_closure()) {
+        // TODO
         return {
             llvm::ConstantPointerNull::get(
                 llvm::PointerType::get(
                     llvm::Type::getInt8Ty(d_ll_context), 0)),
-            data };
-    }
-
-    if (t.is_float()) {
-        const float *pfloat = reinterpret_cast<const float *>(data);
-
-        return {
-            llvm::ConstantFP::get(
-                llvm_type, pfloat ? *pfloat : 0.0),
-            pfloat ? pfloat + 1 : nullptr };
-    }
-
-    if (t.is_triple()) {
-        struct float3 {
-            float value[3];
+            p
         };
-
-        const float3 *pfloat3 = reinterpret_cast<const float3 *>(data);
-
-        static float3 zero = { { 0.0, 0.0, 0.0 } };
-
-        return {
-            llvm::ConstantDataVector::get(
-                d_ll_context, pfloat3 ? pfloat3->value : zero.value),
-            pfloat3 ? pfloat3 + 1 : nullptr };
     }
 
-    if (t.is_int()) {
-        const int *pint = reinterpret_cast<const int *>(data);
+    if (t.is_structure_array()) {
+        auto struct_spec = t.structspec();
+        OSL::pvt::TypeSpec element_type(nullptr, t.structure());
 
-        return {
-            llvm::ConstantInt::get(
-                llvm_type, pint ? *pint : 0),
-            pint ? pint + 1 : nullptr };
-    }
+        std::vector<llvm::Constant *> elements(t.arraylength(), nullptr);
 
-    if (t.is_matrix()) {
-        auto llvm_array_type = llvm::cast<llvm::ArrayType>(llvm_type);
-
-        struct float4 {
-            float value[4];
-        };
-
-        const float4 *pfloat4 = reinterpret_cast<const float4 *>(data);
-
-        static float4 identity[] = {
-            { { 1.0, 0.0, 0.0, 0.0 } },
-            { { 0.0, 1.0, 0.0, 0.0 } },
-            { { 0.0, 0.0, 1.0, 0.0 } },
-            { { 0.0, 0.0, 0.0, 1.0 } },
-        };
+        std::generate_n(
+            elements.begin(), t.arraylength(),
+            [this, &p, &element_type]() -> llvm::Constant * {
+                auto [ element, next_p ] = getLLVMConstant(element_type, p);
+                p = next_p;
+                return element;
+            });
 
         return {
             llvm::ConstantArray::get(
-                llvm_array_type, std::vector<llvm::Constant*>{
-                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[0].value : identity[0].value),
-                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[1].value : identity[1].value),
-                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[2].value : identity[2].value),
-                    llvm::ConstantDataVector::get(d_ll_context, pfloat4 ? pfloat4[3].value : identity[3].value) }),
-            pfloat4 ? pfloat4 + 1 : nullptr };
+                llvm::cast<llvm::ArrayType>(llvm_type), elements),
+            p
+        };
     }
 
-    if (t.is_structure()) {
-        auto llvm_struct_type = llvm::cast<llvm::StructType>(llvm_type);
-
-        std::vector<llvm::Constant *> members;
-
+    if (t.is_structure_based()) {
         auto struct_spec = t.structspec();
 
-        for (int i = 0, n = struct_spec->numfields(); i < n; ++i) {
-            auto [ constant, next_data ] = getLLVMConstant(struct_spec->field(i).type, data);
-            members.push_back(constant);
-            data = next_data;
-        }
+        std::vector<llvm::Constant *> members(struct_spec->numfields(), nullptr);
+        int i = 0;
+
+        std::generate_n(
+            members.begin(), struct_spec->numfields(),
+            [this, &p, struct_spec, &i]() -> llvm::Constant * {
+                auto [ member, next_p ] = getLLVMConstant(struct_spec->field(i++).type, p);
+                p = next_p;
+                return member;
+            });
 
         return {
             llvm::ConstantStruct::get(
-                llvm_struct_type, members),
-            data };
+                llvm::cast<llvm::StructType>(llvm_type),
+                members),
+            p
+        };
     }
 
-    if (t.is_sized_array()) {
-        auto llvm_array_type = llvm::cast<llvm::ArrayType>(llvm_type);
-
-        std::vector<llvm::Constant *> elements;
-
-        for (int i = 0, n = t.arraylength(); i < n; ++i) {
-            auto [ constant, next_data ] = getLLVMConstant(t.elementtype(), data);
-            elements.push_back(constant);
-            data = next_data;
-        }
-
-        return {
-            llvm::ConstantArray::get(
-                llvm_array_type, elements),
-            data };
-    }
-
-    if (t.is_string()) {
-        auto llvm_struct_type = llvm::cast<llvm::StructType>(llvm_type);
-
-        return {
-            llvm::ConstantStruct::get(
-                llvm_struct_type,
-                std::vector<llvm::Constant *>{
-                    llvm::ConstantInt::get(
-                        llvm::Type::getInt32Ty(d_ll_context), 0xFFFF)
-                }),
-            data };
-    }
-
-    return { nullptr, data };
+    return d_context.getLLVMConstant(t.simpletype(), p);
 }
 
 llvm::Constant *
 Shader::IRGenContext::getLLVMConstant(const Symbol& s) {
-    return getLLVMConstant(s.typespec(), s.data()).first;
+    if (s.data()) {
+        return getLLVMConstant(s.typespec(), s.data()).first;
+    }
+
+    return getLLVMDefaultConstant(s.typespec());
 }
 
 void
@@ -708,9 +644,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 case SymTypeConst: {
                     // Constants are inlined:
                     auto value = irgen_context.getLLVMConstant(*s);
-                    if (!value) {
-                        break;
-                    }
+                    assert(value);
 
                     // Some constants will be passed on by reference:
                     if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
@@ -721,8 +655,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     else {
                         irgen_context.insertSymbolValue(*s, value);
                     }
-
-                    irgen_context.insertSymbolValue(*s, value);
                 } break;
                 default:
                     break;

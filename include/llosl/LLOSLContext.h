@@ -5,11 +5,15 @@
 #include <llvm/ADT/ilist.h>
 #include <llvm/Support/Error.h>
 
+#include <OSL/oslconfig.h>
+
 #include <memory>
 #include <system_error>
 
 namespace llvm {
+class Constant;
 class LLVMContext;
+class Type;
 } // End namespace llvm
 
 namespace llosl {
@@ -44,6 +48,10 @@ public:
 
   const llvm::LLVMContext&   getLLContext() const;
   llvm::LLVMContext&         getLLContext();
+
+  llvm::Type                *getLLVMType(const OSL::TypeDesc&);
+  llvm::Constant            *getLLVMDefaultConstant(const OSL::TypeDesc&);
+  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *);
 
   llvm::Expected<Builder>    getBuilder();
 
