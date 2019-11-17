@@ -6,6 +6,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Instruction.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
@@ -26,6 +27,38 @@ MAKE_OPCODE(nop);
 MAKE_OPCODE(assign);
 
 } }
+
+namespace {
+
+struct OSLBaseTypeTraits {
+    enum Type {
+        Integer, Real, NaN
+    };
+
+    Type type = NaN;
+    bool sign = false;
+    std::size_t width = 0;
+};
+
+OSLBaseTypeTraits s_oslBaseTypeTraits[] = {
+    { },
+    { },
+    { OSLBaseTypeTraits::Integer, false,  8 },
+    { OSLBaseTypeTraits::Integer, true,   8 },
+    { OSLBaseTypeTraits::Integer, false, 16 },
+    { OSLBaseTypeTraits::Integer, true,  16 },
+    { OSLBaseTypeTraits::Integer, false, 32 },
+    { OSLBaseTypeTraits::Integer, true,  32 },
+    { OSLBaseTypeTraits::Integer, false, 64 },
+    { OSLBaseTypeTraits::Integer, true,  64 },
+    { OSLBaseTypeTraits::Real,    true,  16 },
+    { OSLBaseTypeTraits::Real,    true,  32 },
+    { OSLBaseTypeTraits::Real,    true,  64 },
+    { },
+    { }
+};
+
+}
 
 namespace llosl {
 
@@ -60,6 +93,8 @@ public:
 
     llvm::Value *getSymbolAddress(const Symbol&);
     llvm::Value *getSymbolValue(const Symbol&);
+
+    llvm::Value *promoteValue(const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
 
     llvm::BasicBlock *createBlock(llvm::StringRef = llvm::StringRef());
     void beginBlock(llvm::BasicBlock *);
@@ -369,6 +404,79 @@ Shader::IRGenContext::getSymbolValue(const Symbol& symbol) {
     }
 
     return builder().CreateLoad(getSymbolAddress(symbol));
+}
+
+llvm::Value *
+Shader::IRGenContext::promoteValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
+    const auto& lhs_traits = s_oslBaseTypeTraits[lhs_type.basetype];
+    const auto& rhs_traits = s_oslBaseTypeTraits[rhs_type.basetype];
+
+    auto lhs_llvm_basetype = d_context.getLLVMType(
+        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype));
+
+    // int-to-int
+    if (lhs_traits.type == OSLBaseTypeTraits::Integer && rhs_traits.type == OSLBaseTypeTraits::Integer) {
+        if (lhs_traits.width < rhs_traits.width) {
+            rhs_value = builder().CreateTrunc(rhs_value, lhs_llvm_basetype);
+        }
+        else if (lhs_traits.width > rhs_traits.width) {
+            if (lhs_traits.sign) {
+                rhs_value = builder().CreateSExt(rhs_value, lhs_llvm_basetype);
+            }
+            else {
+                rhs_value = builder().CreateZExt(rhs_value, lhs_llvm_basetype);
+            }
+        }
+    }
+    // int-to-fp
+    else if (lhs_traits.type == OSLBaseTypeTraits::Real && rhs_traits.type == OSLBaseTypeTraits::Integer) {
+        if (rhs_traits.sign) {
+            rhs_value = builder().CreateSIToFP(rhs_value, lhs_llvm_basetype);
+        }
+        else {
+            rhs_value = builder().CreateUIToFP(rhs_value, lhs_llvm_basetype);
+        }
+    }
+    // fp-to-int
+    else if (lhs_traits.type == OSLBaseTypeTraits::Integer && rhs_traits.type == OSLBaseTypeTraits::Real) {
+        if (lhs_traits.sign) {
+            rhs_value = builder().CreateFPToSI(rhs_value, lhs_llvm_basetype);
+        }
+        else {
+            rhs_value = builder().CreateFPToUI(rhs_value, lhs_llvm_basetype);
+        }
+    }
+    // fp-to-fp
+    else if (lhs_traits.type == OSLBaseTypeTraits::Real && rhs_traits.type == OSLBaseTypeTraits::Real) {
+        if (lhs_traits.width < rhs_traits.width) {
+            rhs_value = builder().CreateFPTrunc(rhs_value, lhs_llvm_basetype);
+        }
+        else if (lhs_traits.width > rhs_traits.width) {
+            rhs_value = builder().CreateFPExt(rhs_value, lhs_llvm_basetype);
+        }
+    }
+
+    //
+    auto lhs_aggregate = lhs_type.aggregate;
+    auto rhs_aggregate = rhs_type.aggregate;
+
+    auto lhs_llvm_aggtype = d_context.getLLVMType(
+        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype,
+                      (OSL::TypeDesc::AGGREGATE)lhs_type.aggregate));
+
+    if (lhs_aggregate > 1 && rhs_aggregate == 1) {
+        if (lhs_aggregate >= 2 && lhs_aggregate <= 4) {
+            llvm::Value *tmp = llvm::UndefValue::get(lhs_llvm_aggtype);
+
+            for (unsigned i = 0, n = (unsigned)lhs_aggregate; i < n; ++i) {
+                tmp = builder().CreateInsertElement(tmp, rhs_value, i);
+            }
+
+            rhs_value = tmp;
+        }
+    }
+
+    return rhs_value;
 }
 
 llvm::BasicBlock *
@@ -706,6 +814,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             const auto& opcode = ops[opcode_index++];
             const auto& opname = opcode.opname();
 
+            std::cerr << opname.string() << std::endl;
+
             if (opname == Ops::end) {
                 irgen_context.builder().CreateBr(exit_block);
                 break;
@@ -718,18 +828,38 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             std::vector<const Symbol *> opargs;
             opargs.reserve(opcode.nargs());
             for (int i = opcode.firstarg(), n = opcode.nargs(); n > 0; ++i, --n) {
+                auto opsym = symbols[args[i]].dealias();
+                std::cerr << "\t" << opsym->name().string() << " " << opsym->typespec().string() << std::endl;
+
                 opargs.push_back(symbols[args[i]].dealias());
             }
 
             if (opname == Ops::assign) {
+                const auto& ltype = opargs[0]->typespec();
+                const auto& rtype = opargs[1]->typespec();
+
                 auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
                 auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+
+                if (ltype.is_closure() || ltype.is_matrix() || ltype.is_structure() || ltype.is_string()) {
+                    assert(ltype.is_closure()   == rtype.is_closure());
+                    assert(ltype.is_matrix()    == rtype.is_matrix());
+                    assert(ltype.is_structure() == rtype.is_structure());
+                    assert(ltype.is_string()    == rtype.is_string());
+
+                    irgen_context.builder().CreateStore(rvalue, lvalue);
+
+                    continue;
+                }
+
+                rvalue = irgen_context.promoteValue(ltype.simpletype(),
+                                                    rtype.simpletype(),
+                                                    rvalue);
+
                 irgen_context.builder().CreateStore(rvalue, lvalue);
 
                 continue;
             }
-
-            std::cerr << opname.string() << std::endl;
         }
 
         irgen_context.endBlock();
