@@ -25,6 +25,12 @@ namespace { namespace Ops {
 MAKE_OPCODE(end);
 MAKE_OPCODE(nop);
 MAKE_OPCODE(assign);
+MAKE_OPCODE(add);
+MAKE_OPCODE(sub);
+MAKE_OPCODE(mul);
+MAKE_OPCODE(div);
+MAKE_OPCODE(mod);
+MAKE_OPCODE(neg);
 
 } }
 
@@ -857,6 +863,111 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                                                     rvalue);
 
                 irgen_context.builder().CreateStore(rvalue, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::add || opname == Ops::sub || opname == Ops::mul || opname == Ops::div /*|| opname == Ops::neg*/) {
+                const auto& ltype  = opargs[0]->typespec();
+                const auto& rtype0 = opargs[1]->typespec();
+                const auto& rtype1 = opargs[2]->typespec();
+
+                auto lvalue  = irgen_context.getSymbolAddress(*opargs[0]);
+                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
+                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+
+                if (ltype.is_closure()) {
+                    continue;
+                }
+
+                rvalue0 = irgen_context.promoteValue(ltype.simpletype(),
+                                                     rtype0.simpletype(),
+                                                     rvalue0);
+                rvalue1 = irgen_context.promoteValue(ltype.simpletype(),
+                                                     rtype1.simpletype(),
+                                                     rvalue1);
+
+                auto type = s_oslBaseTypeTraits[ltype.simpletype().basetype].type;
+                llvm::Value *result = nullptr;
+
+                if (type == OSLBaseTypeTraits::Integer) {
+                    auto sign = s_oslBaseTypeTraits[ltype.simpletype().basetype].sign;
+
+                    if (opname == Ops::add) {
+                        result = irgen_context.builder().CreateAdd(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::sub) {
+                        result = irgen_context.builder().CreateSub(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::mul) {
+                        result = irgen_context.builder().CreateMul(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::div) {
+                        if (sign) {
+                            result = irgen_context.builder().CreateSDiv(rvalue0, rvalue1);
+                        }
+                        else {
+                            result = irgen_context.builder().CreateUDiv(rvalue0, rvalue1);
+                        }
+                    }
+                    else if (opname == Ops::mod) {
+                        if (sign) {
+                            result = irgen_context.builder().CreateSRem(rvalue0, rvalue1);
+                        }
+                        else {
+                            result = irgen_context.builder().CreateURem(rvalue0, rvalue1);
+                        }
+                    }
+
+                    assert(result);
+                }
+                else if (type == OSLBaseTypeTraits::Real) {
+                    if (opname == Ops::add) {
+                        result = irgen_context.builder().CreateFAdd(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::sub) {
+                        result = irgen_context.builder().CreateFSub(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::mul) {
+                        result = irgen_context.builder().CreateFMul(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::div) {
+                        result = irgen_context.builder().CreateFDiv(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::mod) {
+                        result = irgen_context.builder().CreateFRem(rvalue0, rvalue1);
+                    }
+
+                    assert(result);
+                }
+
+                irgen_context.builder().CreateStore(result, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::neg) {
+                const auto& ltype = opargs[0]->typespec();
+                const auto& rtype = opargs[1]->typespec();
+
+                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
+                auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+
+                rvalue = irgen_context.promoteValue(ltype.simpletype(),
+                                                    rtype.simpletype(),
+                                                    rvalue);
+
+                auto type = s_oslBaseTypeTraits[ltype.simpletype().basetype].type;
+                llvm::Value *result = nullptr;
+
+                if (type == OSLBaseTypeTraits::Integer) {
+                    result = irgen_context.builder().CreateNeg(rvalue);
+                }
+                else if (type == OSLBaseTypeTraits::Real) {
+                    result = irgen_context.builder().CreateFNeg(rvalue);
+                }
+
+                irgen_context.builder().CreateStore(result, lvalue);
 
                 continue;
             }
