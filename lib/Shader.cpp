@@ -24,6 +24,8 @@ namespace { namespace Ops {
 
 MAKE_OPCODE(end);
 MAKE_OPCODE(nop);
+MAKE_OPCODE(functioncall);
+ustring functionreturn("return");
 MAKE_OPCODE(assign);
 MAKE_OPCODE(add);
 MAKE_OPCODE(sub);
@@ -823,7 +825,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             std::cerr << opname.string() << std::endl;
 
             if (opname == Ops::end) {
-                irgen_context.builder().CreateBr(exit_block);
                 break;
             }
 
@@ -838,6 +839,29 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 std::cerr << "\t" << opsym->name().string() << " " << opsym->typespec().string() << std::endl;
 
                 opargs.push_back(symbols[args[i]].dealias());
+            }
+
+            if (opname == Ops::functioncall) {
+                auto name = opargs[0]->get_string().string();
+
+                auto function_block = irgen_context.createBlock(name);
+                block = irgen_context.createBlock();
+
+                auto function_opcode_index = std::exchange(opcode_index, opcode.jump(0));
+                auto function_opcode_end = opcode_index;
+
+                stack.push({
+                    function_block, block, function_opcode_index, function_opcode_end
+                });
+
+                irgen_context.builder().CreateBr(function_block);
+                irgen_context.continueBlock(block);
+
+                continue;
+            }
+
+            if (opname == Ops::functionreturn) {
+                break;
             }
 
             if (opname == Ops::assign) {
@@ -972,6 +996,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 continue;
             }
         }
+
+        irgen_context.builder().CreateBr(merge_block);
 
         irgen_context.endBlock();
     }
