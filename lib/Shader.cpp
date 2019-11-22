@@ -603,20 +603,11 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     d_context->addShader(this);
 
-    // Create a temporary group to perform optimizations on:
-    OSL::ShaderGroupRef group(new OSL::ShaderGroup("tmp"));
-
-    OSL::pvt::ShaderInstance::ref instance(new OSL::pvt::ShaderInstance(&shader_master));
-    instance->parameters({});
-
-    group->append(instance);
-
-    StartProcessingShaderGroup(*group);
     d_module = std::make_unique<llvm::Module>(shader_master.shadername(), ll_context);
 
     IRGenContext irgen_context(*d_context, *d_module);
 
-    const auto& symbols = instance->symbols();
+    const auto& symbols = shader_master.symbols();
 
     // Count the number of inputs and outputs:
     unsigned input_count = 0, output_count = 0;
@@ -804,12 +795,12 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     std::stack<Frame> stack;
 
-    const auto& ops  = instance->ops();
-    const auto& args = instance->args();
+    const auto& ops  = shader_master.ops();
+    const auto& args = shader_master.args();
 
     stack.push({
         body_block, exit_block,
-        instance->maincodebegin(), instance->maincodeend()
+        shader_master.maincodebegin(), shader_master.maincodeend()
     });
 
     while (!stack.empty()) {
@@ -1007,7 +998,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(function.release()));
 
-    StopProcessingShaderGroup(*group);
     d_module->dump();
 }
 
