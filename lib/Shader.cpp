@@ -16,6 +16,7 @@
 #include <runtimeoptimize.h>
 
 #include <map>
+#include <numeric>
 #include <stack>
 
 namespace { namespace Ops {
@@ -38,7 +39,13 @@ MAKE_OPCODE(neg);
 
 namespace {
 
-struct OSLBaseTypeTraits {
+struct OSLScalarTypeTraits {
+    static const OSLScalarTypeTraits& get(OSL::TypeDesc::BASETYPE);
+    static const OSLScalarTypeTraits& get(const OSL::TypeDesc&);
+
+    OSL::TypeDesc::BASETYPE getOSLScalarType() const;
+    OSL::TypeDesc           getOSLTypeDesc() const;
+
     enum Type {
         Integer, Real, NaN
     };
@@ -48,23 +55,69 @@ struct OSLBaseTypeTraits {
     std::size_t width = 0;
 };
 
-OSLBaseTypeTraits s_oslBaseTypeTraits[] = {
-    { },
-    { },
-    { OSLBaseTypeTraits::Integer, false,  8 },
-    { OSLBaseTypeTraits::Integer, true,   8 },
-    { OSLBaseTypeTraits::Integer, false, 16 },
-    { OSLBaseTypeTraits::Integer, true,  16 },
-    { OSLBaseTypeTraits::Integer, false, 32 },
-    { OSLBaseTypeTraits::Integer, true,  32 },
-    { OSLBaseTypeTraits::Integer, false, 64 },
-    { OSLBaseTypeTraits::Integer, true,  64 },
-    { OSLBaseTypeTraits::Real,    true,  16 },
-    { OSLBaseTypeTraits::Real,    true,  32 },
-    { OSLBaseTypeTraits::Real,    true,  64 },
-    { },
-    { }
-};
+const OSLScalarTypeTraits&
+OSLScalarTypeTraits::get(OSL::TypeDesc::BASETYPE basetype) {
+    static const OSLScalarTypeTraits s_traits[] = {
+        { },
+        { },
+        { OSLScalarTypeTraits::Integer, false,  8 },
+        { OSLScalarTypeTraits::Integer, true,   8 },
+        { OSLScalarTypeTraits::Integer, false, 16 },
+        { OSLScalarTypeTraits::Integer, true,  16 },
+        { OSLScalarTypeTraits::Integer, false, 32 },
+        { OSLScalarTypeTraits::Integer, true,  32 },
+        { OSLScalarTypeTraits::Integer, false, 64 },
+        { OSLScalarTypeTraits::Integer, true,  64 },
+        { OSLScalarTypeTraits::Real,    true,  16 },
+        { OSLScalarTypeTraits::Real,    true,  32 },
+        { OSLScalarTypeTraits::Real,    true,  64 },
+        { },
+        { }
+    };
+
+    return s_traits[basetype];
+}
+
+const OSLScalarTypeTraits&
+OSLScalarTypeTraits::get(const OSL::TypeDesc& t) {
+    return OSLScalarTypeTraits::get((OSL::TypeDesc::BASETYPE)t.basetype);
+}
+
+OSL::TypeDesc::BASETYPE
+OSLScalarTypeTraits::getOSLScalarType() const {
+    switch (type) {
+        case OSLScalarTypeTraits::Integer: {
+            switch (width) {
+                case 8:
+                    return sign ? OSL::TypeDesc::INT8  : OSL::TypeDesc::UINT8;
+                case 16:
+                    return sign ? OSL::TypeDesc::INT16 : OSL::TypeDesc::UINT16;
+                case 32:
+                    return sign ? OSL::TypeDesc::INT32 : OSL::TypeDesc::UINT32;
+                case 64:
+                    return sign ? OSL::TypeDesc::INT64 : OSL::TypeDesc::UINT64;
+                default:
+                    break;
+            }
+        } break;
+        case OSLScalarTypeTraits::Real: {
+            switch (width) {
+                case 16:
+                    return OSL::TypeDesc::HALF;
+                case 32:
+                    return OSL::TypeDesc::FLOAT;
+                case 64:
+                    return OSL::TypeDesc::DOUBLE;
+                default:
+                    break;
+            }
+        } break;
+        default:
+            break;
+    }
+
+    return OSL::TypeDesc::UNKNOWN;
+}
 
 }
 
@@ -416,14 +469,14 @@ Shader::IRGenContext::getSymbolValue(const Symbol& symbol) {
 
 llvm::Value *
 Shader::IRGenContext::promoteValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
-    const auto& lhs_traits = s_oslBaseTypeTraits[lhs_type.basetype];
-    const auto& rhs_traits = s_oslBaseTypeTraits[rhs_type.basetype];
+    const auto& lhs_traits = OSLScalarTypeTraits::get(lhs_type);
+    const auto& rhs_traits = OSLScalarTypeTraits::get(rhs_type);
 
     auto lhs_llvm_basetype = d_context.getLLVMType(
         OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype));
 
     // int-to-int
-    if (lhs_traits.type == OSLBaseTypeTraits::Integer && rhs_traits.type == OSLBaseTypeTraits::Integer) {
+    if (lhs_traits.type == OSLScalarTypeTraits::Integer && rhs_traits.type == OSLScalarTypeTraits::Integer) {
         if (lhs_traits.width < rhs_traits.width) {
             rhs_value = builder().CreateTrunc(rhs_value, lhs_llvm_basetype);
         }
@@ -437,7 +490,7 @@ Shader::IRGenContext::promoteValue(const OSL::TypeDesc& lhs_type, const OSL::Typ
         }
     }
     // int-to-fp
-    else if (lhs_traits.type == OSLBaseTypeTraits::Real && rhs_traits.type == OSLBaseTypeTraits::Integer) {
+    else if (lhs_traits.type == OSLScalarTypeTraits::Real && rhs_traits.type == OSLScalarTypeTraits::Integer) {
         if (rhs_traits.sign) {
             rhs_value = builder().CreateSIToFP(rhs_value, lhs_llvm_basetype);
         }
@@ -446,7 +499,7 @@ Shader::IRGenContext::promoteValue(const OSL::TypeDesc& lhs_type, const OSL::Typ
         }
     }
     // fp-to-int
-    else if (lhs_traits.type == OSLBaseTypeTraits::Integer && rhs_traits.type == OSLBaseTypeTraits::Real) {
+    else if (lhs_traits.type == OSLScalarTypeTraits::Integer && rhs_traits.type == OSLScalarTypeTraits::Real) {
         if (lhs_traits.sign) {
             rhs_value = builder().CreateFPToSI(rhs_value, lhs_llvm_basetype);
         }
@@ -455,7 +508,7 @@ Shader::IRGenContext::promoteValue(const OSL::TypeDesc& lhs_type, const OSL::Typ
         }
     }
     // fp-to-fp
-    else if (lhs_traits.type == OSLBaseTypeTraits::Real && rhs_traits.type == OSLBaseTypeTraits::Real) {
+    else if (lhs_traits.type == OSLScalarTypeTraits::Real && rhs_traits.type == OSLScalarTypeTraits::Real) {
         if (lhs_traits.width < rhs_traits.width) {
             rhs_value = builder().CreateFPTrunc(rhs_value, lhs_llvm_basetype);
         }
@@ -902,12 +955,10 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                                                      rtype1.simpletype(),
                                                      rvalue1);
 
-                auto type = s_oslBaseTypeTraits[ltype.simpletype().basetype].type;
+                const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ltype.simpletype());
                 llvm::Value *result = nullptr;
 
-                if (type == OSLBaseTypeTraits::Integer) {
-                    auto sign = s_oslBaseTypeTraits[ltype.simpletype().basetype].sign;
-
+                if (type == OSLScalarTypeTraits::Integer) {
                     if (opname == Ops::add) {
                         result = irgen_context.builder().CreateAdd(rvalue0, rvalue1);
                     }
@@ -936,7 +987,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
                     assert(result);
                 }
-                else if (type == OSLBaseTypeTraits::Real) {
+                else if (type == OSLScalarTypeTraits::Real) {
                     if (opname == Ops::add) {
                         result = irgen_context.builder().CreateFAdd(rvalue0, rvalue1);
                     }
@@ -972,13 +1023,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                                                     rtype.simpletype(),
                                                     rvalue);
 
-                auto type = s_oslBaseTypeTraits[ltype.simpletype().basetype].type;
+                const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ltype.simpletype());
                 llvm::Value *result = nullptr;
 
-                if (type == OSLBaseTypeTraits::Integer) {
+                if (type == OSLScalarTypeTraits::Integer) {
                     result = irgen_context.builder().CreateNeg(rvalue);
                 }
-                else if (type == OSLBaseTypeTraits::Real) {
+                else if (type == OSLScalarTypeTraits::Real) {
                     result = irgen_context.builder().CreateFNeg(rvalue);
                 }
 
