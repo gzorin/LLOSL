@@ -34,6 +34,12 @@ MAKE_OPCODE(mul);
 MAKE_OPCODE(div);
 MAKE_OPCODE(mod);
 MAKE_OPCODE(neg);
+MAKE_OPCODE(eq);
+MAKE_OPCODE(neq);
+MAKE_OPCODE(lt);
+MAKE_OPCODE(gt);
+MAKE_OPCODE(le);
+MAKE_OPCODE(ge);
 
 } }
 
@@ -44,10 +50,10 @@ struct OSLScalarTypeTraits {
     static const OSLScalarTypeTraits& get(const OSL::TypeDesc&);
 
     OSL::TypeDesc::BASETYPE getOSLScalarType() const;
-    OSL::TypeDesc           getOSLTypeDesc() const;
+    OSL::TypeDesc           getOSLTypeDesc(OSL::TypeDesc::AGGREGATE = OSL::TypeDesc::SCALAR) const;
 
     enum Type {
-        Integer, Real, NaN
+        NaN, Integer, Real
     };
 
     Type type = NaN;
@@ -117,6 +123,45 @@ OSLScalarTypeTraits::getOSLScalarType() const {
     }
 
     return OSL::TypeDesc::UNKNOWN;
+}
+
+OSL::TypeDesc
+OSLScalarTypeTraits::getOSLTypeDesc(OSL::TypeDesc::AGGREGATE aggregate) const {
+    return OSL::TypeDesc(getOSLScalarType(), aggregate);
+}
+
+OSL::TypeDesc
+getPromotionType(llvm::ArrayRef<OSL::TypeDesc> types) {
+    struct Traits {
+        OSLScalarTypeTraits      basetype;
+        OSL::TypeDesc::AGGREGATE aggregate = OSL::TypeDesc::SCALAR;
+    };
+
+    auto traits =
+        std::accumulate(
+            types.begin(), types.end(),
+            std::optional<Traits>(),
+            [](auto acc, auto cur) -> std::optional<Traits> {
+                Traits traits = {
+                    OSLScalarTypeTraits::get(cur),
+                    (OSL::TypeDesc::AGGREGATE)cur.aggregate
+                };
+
+                if (!acc) {
+                    return { traits };
+                }
+
+                acc->basetype.type  = std::max(acc->basetype.type,  traits.basetype.type);
+                acc->basetype.sign  = std::max(acc->basetype.sign,  traits.basetype.sign);
+                acc->basetype.width = std::max(acc->basetype.width, traits.basetype.width);
+                acc->aggregate      = std::max(acc->aggregate,      traits.aggregate);
+
+                return acc;
+            });
+
+    assert(traits);
+
+    return traits->basetype.getOSLTypeDesc(traits->aggregate);
 }
 
 }
@@ -935,7 +980,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 continue;
             }
 
-            if (opname == Ops::add || opname == Ops::sub || opname == Ops::mul || opname == Ops::div /*|| opname == Ops::neg*/) {
+            if (opname == Ops::add || opname == Ops::sub || opname == Ops::mul || opname == Ops::div) {
                 const auto& ltype  = opargs[0]->typespec();
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
@@ -1019,9 +1064,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
                 auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
 
-                rvalue = irgen_context.convertValue(ltype.simpletype(),
-                                                    rtype.simpletype(),
-                                                    rvalue);
+                rvalue = irgen_context.convertValue(ltype.simpletype(), rtype.simpletype(), rvalue);
 
                 const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ltype.simpletype());
                 llvm::Value *result = nullptr;
@@ -1032,6 +1075,105 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 else if (type == OSLScalarTypeTraits::Real) {
                     result = irgen_context.builder().CreateFNeg(rvalue);
                 }
+
+                irgen_context.builder().CreateStore(result, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::eq || opname == Ops::neq || opname == Ops::lt || opname == Ops::gt || opname == Ops::le || opname == Ops::ge) {
+                const auto& ltype  = opargs[0]->typespec();
+                const auto& rtype0 = opargs[1]->typespec();
+                const auto& rtype1 = opargs[2]->typespec();
+
+                if (rtype0.is_string()) {
+                    assert(rtype0.is_string() == rtype1.is_string());
+                    // TODO
+                    continue;
+                }
+
+                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
+                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
+                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+
+                auto ptype = getPromotionType(std::vector<OSL::TypeDesc>{ rtype0.simpletype(),
+                                                                          rtype1.simpletype() });
+
+                rvalue0 = irgen_context.convertValue(ptype, rtype0.simpletype(), rvalue0);
+                rvalue1 = irgen_context.convertValue(ptype, rtype1.simpletype(), rvalue1);
+
+                const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ptype);
+                llvm::Value *result = nullptr;
+
+                if (type == OSLScalarTypeTraits::Integer) {
+                    if (opname == Ops::eq) {
+                        result = irgen_context.builder().CreateICmpEQ(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::neq) {
+                        result = irgen_context.builder().CreateICmpNE(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::lt) {
+                        if (sign) {
+                            result = irgen_context.builder().CreateICmpSLT(rvalue0, rvalue1);
+                        }
+                        else {
+                            result = irgen_context.builder().CreateICmpULT(rvalue0, rvalue1);
+                        }
+                    }
+                    else if (opname == Ops::gt) {
+                        if (sign) {
+                            result = irgen_context.builder().CreateICmpSGT(rvalue0, rvalue1);
+                        }
+                        else {
+                            result = irgen_context.builder().CreateICmpUGT(rvalue0, rvalue1);
+                        }
+                    }
+                    else if (opname == Ops::le) {
+                        if (sign) {
+                            result = irgen_context.builder().CreateICmpSLE(rvalue0, rvalue1);
+                        }
+                        else {
+                            result = irgen_context.builder().CreateICmpULE(rvalue0, rvalue1);
+                        }
+                    }
+                    else if (opname == Ops::ge) {
+                        if (sign) {
+                            result = irgen_context.builder().CreateICmpSGE(rvalue0, rvalue1);
+                        }
+                        else {
+                            result = irgen_context.builder().CreateICmpUGE(rvalue0, rvalue1);
+                        }
+                    }
+                }
+                else if (type == OSLScalarTypeTraits::Real) {
+                    if (opname == Ops::eq) {
+                        result = irgen_context.builder().CreateFCmpUEQ(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::neq) {
+                        result = irgen_context.builder().CreateFCmpUNE(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::lt) {
+                        result = irgen_context.builder().CreateFCmpULT(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::gt) {
+                        result = irgen_context.builder().CreateFCmpUGT(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::le) {
+                        result = irgen_context.builder().CreateFCmpULE(rvalue0, rvalue1);
+                    }
+                    else if (opname == Ops::ge) {
+                        result = irgen_context.builder().CreateFCmpUGE(rvalue0, rvalue1);
+                    }
+                }
+
+                if (ptype.aggregate != OSL::TypeDesc::SCALAR) {
+                    result = irgen_context.builder().CreateAndReduce(result);
+                }
+
+                result = irgen_context.builder().CreateZExt(
+                    result,
+                    d_context->getLLVMType(
+                        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)ltype.simpletype().basetype)));
 
                 irgen_context.builder().CreateStore(result, lvalue);
 
