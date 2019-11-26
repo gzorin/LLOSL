@@ -155,7 +155,7 @@ public:
     llvm::Value *getSymbolAddress(const Symbol&);
     llvm::Value *getSymbolValue(const Symbol&);
 
-    llvm::Value *promoteValue(const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
+    llvm::Value *convertValue(const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
 
     llvm::BasicBlock *createBlock(llvm::StringRef = llvm::StringRef());
     void beginBlock(llvm::BasicBlock *);
@@ -468,7 +468,7 @@ Shader::IRGenContext::getSymbolValue(const Symbol& symbol) {
 }
 
 llvm::Value *
-Shader::IRGenContext::promoteValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
+Shader::IRGenContext::convertValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
     const auto& lhs_traits = OSLScalarTypeTraits::get(lhs_type);
     const auto& rhs_traits = OSLScalarTypeTraits::get(rhs_type);
 
@@ -926,7 +926,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     continue;
                 }
 
-                rvalue = irgen_context.promoteValue(ltype.simpletype(),
+                rvalue = irgen_context.convertValue(ltype.simpletype(),
                                                     rtype.simpletype(),
                                                     rvalue);
 
@@ -948,10 +948,10 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     continue;
                 }
 
-                rvalue0 = irgen_context.promoteValue(ltype.simpletype(),
+                rvalue0 = irgen_context.convertValue(ltype.simpletype(),
                                                      rtype0.simpletype(),
                                                      rvalue0);
-                rvalue1 = irgen_context.promoteValue(ltype.simpletype(),
+                rvalue1 = irgen_context.convertValue(ltype.simpletype(),
                                                      rtype1.simpletype(),
                                                      rvalue1);
 
@@ -1019,7 +1019,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
                 auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
 
-                rvalue = irgen_context.promoteValue(ltype.simpletype(),
+                rvalue = irgen_context.convertValue(ltype.simpletype(),
                                                     rtype.simpletype(),
                                                     rvalue);
 
