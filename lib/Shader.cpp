@@ -40,6 +40,12 @@ MAKE_OPCODE(lt);
 MAKE_OPCODE(gt);
 MAKE_OPCODE(le);
 MAKE_OPCODE(ge);
+ustring u_bitand("bitand");
+ustring u_bitor("bitor");
+ustring u_xor("xor");
+ustring u_shl("shl");
+ustring u_shr("shr");
+ustring u_compl("compl");
 
 } }
 
@@ -1176,6 +1182,61 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         OSL::TypeDesc((OSL::TypeDesc::BASETYPE)ltype.simpletype().basetype)));
 
                 irgen_context.builder().CreateStore(result, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::u_bitand || opname == Ops::u_bitor || opname == Ops::u_xor || opname == Ops::u_shl || opname == Ops::u_shr) {
+                const auto& ltype  = opargs[0]->typespec();
+                const auto& rtype0 = opargs[1]->typespec();
+                const auto& rtype1 = opargs[2]->typespec();
+
+                auto lvalue  = irgen_context.getSymbolAddress(*opargs[0]);
+                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
+                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+
+                rvalue0 = irgen_context.convertValue(ltype.simpletype(),
+                                                     rtype0.simpletype(),
+                                                     rvalue0);
+                rvalue1 = irgen_context.convertValue(ltype.simpletype(),
+                                                     rtype1.simpletype(),
+                                                     rvalue1);
+
+                llvm::Value *result = nullptr;
+
+                if (opname == Ops::u_bitand) {
+                    result = irgen_context.builder().CreateAnd(rvalue0, rvalue1);
+                }
+                else if (opname == Ops::u_bitor) {
+                    result = irgen_context.builder().CreateOr(rvalue0, rvalue1);
+                }
+                else if (opname == Ops::u_xor) {
+                    result = irgen_context.builder().CreateXor(rvalue0, rvalue1);
+                }
+                else if (opname == Ops::u_shl) {
+                    result = irgen_context.builder().CreateShl(rvalue0, rvalue1);
+                }
+                else if (opname == Ops::u_shr) {
+                    result = irgen_context.builder().CreateAShr(rvalue0, rvalue1);
+                }
+
+                irgen_context.builder().CreateStore(result, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::u_compl) {
+                const auto& ltype = opargs[0]->typespec();
+                const auto& rtype = opargs[1]->typespec();
+
+                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
+                auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+
+                rvalue = irgen_context.convertValue(ltype.simpletype(), rtype.simpletype(), rvalue);
+
+                irgen_context.builder().CreateStore(
+                    irgen_context.builder().CreateNeg(rvalue),
+                    lvalue);
 
                 continue;
             }
