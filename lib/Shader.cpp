@@ -21,25 +21,23 @@
 
 namespace { namespace Ops {
 
-#define MAKE_OPCODE(s) ustring s(#s);
-
-MAKE_OPCODE(end);
-MAKE_OPCODE(nop);
-MAKE_OPCODE(functioncall);
-ustring functionreturn("return");
-MAKE_OPCODE(assign);
-MAKE_OPCODE(add);
-MAKE_OPCODE(sub);
-MAKE_OPCODE(mul);
-MAKE_OPCODE(div);
-MAKE_OPCODE(mod);
-MAKE_OPCODE(neg);
-MAKE_OPCODE(eq);
-MAKE_OPCODE(neq);
-MAKE_OPCODE(lt);
-MAKE_OPCODE(gt);
-MAKE_OPCODE(le);
-MAKE_OPCODE(ge);
+ustring u_end("end");
+ustring u_nop("nop");
+ustring u_functioncall("functioncall");
+ustring u_return("return");
+ustring u_assign("assign");
+ustring u_add("add");
+ustring u_sub("sub");
+ustring u_mul("mul");
+ustring u_div("div");
+ustring u_mod("mod");
+ustring u_neg("neg");
+ustring u_eq("eq");
+ustring u_neq("neq");
+ustring u_lt("lt");
+ustring u_gt("gt");
+ustring u_le("le");
+ustring u_ge("ge");
 ustring u_bitand("bitand");
 ustring u_bitor("bitor");
 ustring u_xor("xor");
@@ -919,11 +917,11 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             std::cerr << opname.string() << std::endl;
 
-            if (opname == Ops::end) {
+            if (opname == Ops::u_end) {
                 break;
             }
 
-            if (opname == Ops::nop) {
+            if (opname == Ops::u_nop) {
                 continue;
             }
 
@@ -936,7 +934,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 opargs.push_back(symbols[args[i]].dealias());
             }
 
-            if (opname == Ops::functioncall) {
+            if (opname == Ops::u_functioncall) {
                 auto name = opargs[0]->get_string().string();
 
                 auto function_block = irgen_context.createBlock(name);
@@ -955,11 +953,11 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 continue;
             }
 
-            if (opname == Ops::functionreturn) {
+            if (opname == Ops::u_return) {
                 break;
             }
 
-            if (opname == Ops::assign) {
+            if (opname == Ops::u_assign) {
                 const auto& ltype = opargs[0]->typespec();
                 const auto& rtype = opargs[1]->typespec();
 
@@ -986,7 +984,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 continue;
             }
 
-            if (opname == Ops::add || opname == Ops::sub || opname == Ops::mul || opname == Ops::div) {
+            if (opname == Ops::u_add || opname == Ops::u_sub || opname == Ops::u_mul || opname == Ops::u_div) {
                 const auto& ltype  = opargs[0]->typespec();
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
@@ -1010,16 +1008,16 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 llvm::Value *result = nullptr;
 
                 if (type == OSLScalarTypeTraits::Integer) {
-                    if (opname == Ops::add) {
+                    if (opname == Ops::u_add) {
                         result = irgen_context.builder().CreateAdd(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::sub) {
+                    else if (opname == Ops::u_sub) {
                         result = irgen_context.builder().CreateSub(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::mul) {
+                    else if (opname == Ops::u_mul) {
                         result = irgen_context.builder().CreateMul(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::div) {
+                    else if (opname == Ops::u_div) {
                         if (sign) {
                             result = irgen_context.builder().CreateSDiv(rvalue0, rvalue1);
                         }
@@ -1027,7 +1025,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                             result = irgen_context.builder().CreateUDiv(rvalue0, rvalue1);
                         }
                     }
-                    else if (opname == Ops::mod) {
+                    else if (opname == Ops::u_mod) {
                         if (sign) {
                             result = irgen_context.builder().CreateSRem(rvalue0, rvalue1);
                         }
@@ -1039,19 +1037,19 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     assert(result);
                 }
                 else if (type == OSLScalarTypeTraits::Real) {
-                    if (opname == Ops::add) {
+                    if (opname == Ops::u_add) {
                         result = irgen_context.builder().CreateFAdd(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::sub) {
+                    else if (opname == Ops::u_sub) {
                         result = irgen_context.builder().CreateFSub(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::mul) {
+                    else if (opname == Ops::u_mul) {
                         result = irgen_context.builder().CreateFMul(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::div) {
+                    else if (opname == Ops::u_div) {
                         result = irgen_context.builder().CreateFDiv(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::mod) {
+                    else if (opname == Ops::u_mod) {
                         result = irgen_context.builder().CreateFRem(rvalue0, rvalue1);
                     }
 
@@ -1063,7 +1061,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 continue;
             }
 
-            if (opname == Ops::neg) {
+            if (opname == Ops::u_neg) {
                 const auto& ltype = opargs[0]->typespec();
                 const auto& rtype = opargs[1]->typespec();
 
@@ -1087,7 +1085,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 continue;
             }
 
-            if (opname == Ops::eq || opname == Ops::neq || opname == Ops::lt || opname == Ops::gt || opname == Ops::le || opname == Ops::ge) {
+            if (opname == Ops::u_eq || opname == Ops::u_neq || opname == Ops::u_lt || opname == Ops::u_gt || opname == Ops::u_le || opname == Ops::u_ge) {
                 const auto& ltype  = opargs[0]->typespec();
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
@@ -1112,13 +1110,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 llvm::Value *result = nullptr;
 
                 if (type == OSLScalarTypeTraits::Integer) {
-                    if (opname == Ops::eq) {
+                    if (opname == Ops::u_eq) {
                         result = irgen_context.builder().CreateICmpEQ(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::neq) {
+                    else if (opname == Ops::u_neq) {
                         result = irgen_context.builder().CreateICmpNE(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::lt) {
+                    else if (opname == Ops::u_lt) {
                         if (sign) {
                             result = irgen_context.builder().CreateICmpSLT(rvalue0, rvalue1);
                         }
@@ -1126,7 +1124,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                             result = irgen_context.builder().CreateICmpULT(rvalue0, rvalue1);
                         }
                     }
-                    else if (opname == Ops::gt) {
+                    else if (opname == Ops::u_gt) {
                         if (sign) {
                             result = irgen_context.builder().CreateICmpSGT(rvalue0, rvalue1);
                         }
@@ -1134,7 +1132,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                             result = irgen_context.builder().CreateICmpUGT(rvalue0, rvalue1);
                         }
                     }
-                    else if (opname == Ops::le) {
+                    else if (opname == Ops::u_le) {
                         if (sign) {
                             result = irgen_context.builder().CreateICmpSLE(rvalue0, rvalue1);
                         }
@@ -1142,7 +1140,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                             result = irgen_context.builder().CreateICmpULE(rvalue0, rvalue1);
                         }
                     }
-                    else if (opname == Ops::ge) {
+                    else if (opname == Ops::u_ge) {
                         if (sign) {
                             result = irgen_context.builder().CreateICmpSGE(rvalue0, rvalue1);
                         }
@@ -1152,22 +1150,22 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     }
                 }
                 else if (type == OSLScalarTypeTraits::Real) {
-                    if (opname == Ops::eq) {
+                    if (opname == Ops::u_eq) {
                         result = irgen_context.builder().CreateFCmpUEQ(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::neq) {
+                    else if (opname == Ops::u_neq) {
                         result = irgen_context.builder().CreateFCmpUNE(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::lt) {
+                    else if (opname == Ops::u_lt) {
                         result = irgen_context.builder().CreateFCmpULT(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::gt) {
+                    else if (opname == Ops::u_gt) {
                         result = irgen_context.builder().CreateFCmpUGT(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::le) {
+                    else if (opname == Ops::u_le) {
                         result = irgen_context.builder().CreateFCmpULE(rvalue0, rvalue1);
                     }
-                    else if (opname == Ops::ge) {
+                    else if (opname == Ops::u_ge) {
                         result = irgen_context.builder().CreateFCmpUGE(rvalue0, rvalue1);
                     }
                 }
