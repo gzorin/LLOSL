@@ -25,6 +25,7 @@ ustring u_end("end");
 ustring u_nop("nop");
 ustring u_functioncall("functioncall");
 ustring u_return("return");
+ustring u_if("if");
 ustring u_assign("assign");
 ustring u_add("add");
 ustring u_sub("sub");
@@ -205,6 +206,7 @@ public:
 
     llvm::Value *getSymbolAddress(const Symbol&);
     llvm::Value *getSymbolValue(const Symbol&);
+    llvm::Value *getSymbolConditionValue(const Symbol&);
 
     llvm::Value *convertValue(const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
 
@@ -517,6 +519,13 @@ Shader::IRGenContext::getSymbolValue(const Symbol& symbol) {
     }
 
     return builder().CreateLoad(getSymbolAddress(symbol));
+}
+
+llvm::Value *
+Shader::IRGenContext::getSymbolConditionValue(const Symbol& symbol) {
+    return builder().CreateTrunc(
+        getSymbolValue(symbol),
+        llvm::Type::getInt1Ty(d_ll_context));
 }
 
 llvm::Value *
@@ -958,6 +967,40 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             if (opname == Ops::u_return) {
                 break;
+            }
+
+            if (opname == Ops::u_if) {
+                llvm::BasicBlock *then_block = nullptr, *else_block = nullptr;
+
+                block = irgen_context.createBlock();
+
+                // 'then' clause:
+                if (opcode.jump(0) >= opcode_index) {
+                    then_block = irgen_context.createBlock("then");
+
+                    auto begin = std::exchange(opcode_index, opcode.jump(0));
+                    auto end = opcode_index;
+
+                    stack.push({
+                        then_block, block, begin, end
+                    });
+                }
+
+                // 'else' clause:
+                if (opcode.jump(1) > opcode.jump(0)) {
+                    else_block = irgen_context.createBlock("else");
+
+                    auto begin = std::exchange(opcode_index, opcode.jump(1));
+                    auto end = opcode_index;
+
+                    stack.push({
+                        else_block, block, begin, end
+                    });
+                }
+
+                auto value = irgen_context.getSymbolConditionValue(*opargs[0]);
+                irgen_context.builder().CreateCondBr(value, then_block, else_block ? else_block : block);
+                irgen_context.continueBlock(block);
             }
 
             if (opname == Ops::u_assign) {
