@@ -179,6 +179,8 @@ public:
 
     llvm::Type     *getLLVMType(const OSL::pvt::TypeSpec&);
 
+    llvm::PointerType *getClosureType();
+
     using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
 
     llvm::Type                *getShaderGlobalsType();
@@ -239,7 +241,7 @@ private:
 
     State d_state = State::Initial;
 
-    llvm::Type *d_closure_type = nullptr;
+    llvm::PointerType *d_closure_type = nullptr;
     llvm::Type *d_string_type = nullptr;
     llvm::DenseMap<int, llvm::Type *> d_struct_types;
     llvm::Type *d_shaderglobals_type = nullptr;
@@ -260,12 +262,7 @@ Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& modu
 llvm::Type *
 Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     if (t.is_closure()) {
-        if (!d_closure_type) {
-            d_closure_type = llvm::PointerType::get(
-                llvm::Type::getInt8Ty(d_ll_context), 0);
-        }
-
-        return d_closure_type;
+        return getClosureType();
     }
 
     if (t.is_structure_based()) {
@@ -292,6 +289,16 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     }
 
     return d_context.getLLVMType(t.simpletype());
+}
+
+llvm::PointerType *
+Shader::IRGenContext::getClosureType() {
+    if (!d_closure_type) {
+        d_closure_type = llvm::PointerType::get(
+            llvm::Type::getInt8Ty(d_ll_context), 0);
+    }
+
+    return d_closure_type;
 }
 
 llvm::Type *
@@ -361,9 +368,7 @@ Shader::IRGenContext::getLLVMDefaultConstant(const OSL::pvt::TypeSpec& t) {
     if (t.is_closure()) {
         // TODO
         return
-            llvm::ConstantPointerNull::get(
-                llvm::PointerType::get(
-                    llvm::Type::getInt8Ty(d_ll_context), 0));
+            llvm::ConstantPointerNull::get(getClosureType());
     }
 
     if (t.is_structure_array()) {
@@ -406,9 +411,7 @@ Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *p
     if (t.is_closure()) {
         // TODO
         return {
-            llvm::ConstantPointerNull::get(
-                llvm::PointerType::get(
-                    llvm::Type::getInt8Ty(d_ll_context), 0)),
+            llvm::ConstantPointerNull::get(getClosureType()),
             p
         };
     }
@@ -965,6 +968,16 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
 
                 if (ltype.is_closure() || ltype.is_matrix() || ltype.is_structure() || ltype.is_string()) {
+                    if (ltype.is_closure() && rtype.is_int()) {
+                        if (llvm::isa<llvm::ConstantInt>(rvalue) &&
+                            llvm::cast<llvm::ConstantInt>(rvalue)->isZero()) {
+                            irgen_context.builder().CreateStore(
+                                llvm::ConstantPointerNull::get(irgen_context.getClosureType()),
+                                lvalue);
+                            continue;
+                        }
+                    }
+
                     assert(ltype.is_closure()   == rtype.is_closure());
                     assert(ltype.is_matrix()    == rtype.is_matrix());
                     assert(ltype.is_structure() == rtype.is_structure());
