@@ -1012,13 +1012,12 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
                 if (ltype.is_closure() || ltype.is_matrix() || ltype.is_structure() || ltype.is_string()) {
                     if (ltype.is_closure() && rtype.is_int()) {
-                        if (llvm::isa<llvm::ConstantInt>(rvalue) &&
-                            llvm::cast<llvm::ConstantInt>(rvalue)->isZero()) {
-                            irgen_context.builder().CreateStore(
-                                llvm::ConstantPointerNull::get(irgen_context.getClosureType()),
-                                lvalue);
-                            continue;
-                        }
+                        assert(llvm::isa<llvm::ConstantInt>(rvalue));
+                        assert(llvm::cast<llvm::ConstantInt>(rvalue)->isZero());
+                        irgen_context.builder().CreateStore(
+                            llvm::ConstantPointerNull::get(irgen_context.getClosureType()),
+                            lvalue);
+                        continue;
                     }
 
                     assert(ltype.is_closure()   == rtype.is_closure());
@@ -1050,6 +1049,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
 
                 if (ltype.is_closure()) {
+                    // TODO
                     continue;
                 }
 
@@ -1146,89 +1146,113 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
 
-                if (rtype0.is_string()) {
-                    assert(rtype0.is_string() == rtype1.is_string());
-                    // TODO
-                    continue;
-                }
-
                 auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
                 auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
                 auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
 
-                auto ptype = getPromotionType(std::vector<OSL::TypeDesc>{ rtype0.simpletype(),
-                                                                          rtype1.simpletype() });
-
-                rvalue0 = irgen_context.convertValue(ptype, rtype0.simpletype(), rvalue0);
-                rvalue1 = irgen_context.convertValue(ptype, rtype1.simpletype(), rvalue1);
-
-                const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ptype);
                 llvm::Value *result = nullptr;
 
-                if (type == OSLScalarTypeTraits::Integer) {
+                if (rtype0.is_closure() || rtype1.is_closure()) {
+                    assert((rtype0.is_closure() && rtype1.is_int()) ||
+                           (rtype1.is_closure() && rtype0.is_int()));
+                    assert((rtype0.is_closure() && llvm::isa<llvm::ConstantInt>(rvalue1) && llvm::cast<llvm::ConstantInt>(rvalue1)->isZero()) ||
+                           (rtype1.is_closure() && llvm::isa<llvm::ConstantInt>(rvalue0) && llvm::cast<llvm::ConstantInt>(rvalue0)->isZero()));
+                    assert(opname == Ops::u_eq || opname == Ops::u_neq);
+
+                    auto closure = rtype0.is_closure() ? rvalue0 : rvalue1;
+
                     if (opname == Ops::u_eq) {
-                        result = irgen_context.builder().CreateICmpEQ(rvalue0, rvalue1);
+                        result = irgen_context.builder().CreateICmpEQ(
+                            closure,
+                            llvm::ConstantPointerNull::get(irgen_context.getClosureType()));
                     }
                     else if (opname == Ops::u_neq) {
-                        result = irgen_context.builder().CreateICmpNE(rvalue0, rvalue1);
-                    }
-                    else if (opname == Ops::u_lt) {
-                        if (sign) {
-                            result = irgen_context.builder().CreateICmpSLT(rvalue0, rvalue1);
-                        }
-                        else {
-                            result = irgen_context.builder().CreateICmpULT(rvalue0, rvalue1);
-                        }
-                    }
-                    else if (opname == Ops::u_gt) {
-                        if (sign) {
-                            result = irgen_context.builder().CreateICmpSGT(rvalue0, rvalue1);
-                        }
-                        else {
-                            result = irgen_context.builder().CreateICmpUGT(rvalue0, rvalue1);
-                        }
-                    }
-                    else if (opname == Ops::u_le) {
-                        if (sign) {
-                            result = irgen_context.builder().CreateICmpSLE(rvalue0, rvalue1);
-                        }
-                        else {
-                            result = irgen_context.builder().CreateICmpULE(rvalue0, rvalue1);
-                        }
-                    }
-                    else if (opname == Ops::u_ge) {
-                        if (sign) {
-                            result = irgen_context.builder().CreateICmpSGE(rvalue0, rvalue1);
-                        }
-                        else {
-                            result = irgen_context.builder().CreateICmpUGE(rvalue0, rvalue1);
-                        }
+                        result = irgen_context.builder().CreateICmpNE(
+                            closure,
+                            llvm::ConstantPointerNull::get(irgen_context.getClosureType()));
                     }
                 }
-                else if (type == OSLScalarTypeTraits::Real) {
-                    if (opname == Ops::u_eq) {
-                        result = irgen_context.builder().CreateFCmpUEQ(rvalue0, rvalue1);
+                else if (rtype0.is_string() || rtype1.is_string()) {
+                    assert(rtype0.is_string() == rtype1.is_string());
+                    // TODO
+                    continue;
+                }
+                else {
+                    auto ptype = getPromotionType(std::vector<OSL::TypeDesc>{ rtype0.simpletype(),
+                                                                              rtype1.simpletype() });
+
+                    rvalue0 = irgen_context.convertValue(ptype, rtype0.simpletype(), rvalue0);
+                    rvalue1 = irgen_context.convertValue(ptype, rtype1.simpletype(), rvalue1);
+
+                    const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ptype);
+
+                    if (type == OSLScalarTypeTraits::Integer) {
+                        if (opname == Ops::u_eq) {
+                            result = irgen_context.builder().CreateICmpEQ(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_neq) {
+                            result = irgen_context.builder().CreateICmpNE(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_lt) {
+                            if (sign) {
+                                result = irgen_context.builder().CreateICmpSLT(rvalue0, rvalue1);
+                            }
+                            else {
+                                result = irgen_context.builder().CreateICmpULT(rvalue0, rvalue1);
+                            }
+                        }
+                        else if (opname == Ops::u_gt) {
+                            if (sign) {
+                                result = irgen_context.builder().CreateICmpSGT(rvalue0, rvalue1);
+                            }
+                            else {
+                                result = irgen_context.builder().CreateICmpUGT(rvalue0, rvalue1);
+                            }
+                        }
+                        else if (opname == Ops::u_le) {
+                            if (sign) {
+                                result = irgen_context.builder().CreateICmpSLE(rvalue0, rvalue1);
+                            }
+                            else {
+                                result = irgen_context.builder().CreateICmpULE(rvalue0, rvalue1);
+                            }
+                        }
+                        else if (opname == Ops::u_ge) {
+                            if (sign) {
+                                result = irgen_context.builder().CreateICmpSGE(rvalue0, rvalue1);
+                            }
+                            else {
+                                result = irgen_context.builder().CreateICmpUGE(rvalue0, rvalue1);
+                            }
+                        }
                     }
-                    else if (opname == Ops::u_neq) {
-                        result = irgen_context.builder().CreateFCmpUNE(rvalue0, rvalue1);
+                    else if (type == OSLScalarTypeTraits::Real) {
+                        if (opname == Ops::u_eq) {
+                            result = irgen_context.builder().CreateFCmpUEQ(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_neq) {
+                            result = irgen_context.builder().CreateFCmpUNE(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_lt) {
+                            result = irgen_context.builder().CreateFCmpULT(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_gt) {
+                            result = irgen_context.builder().CreateFCmpUGT(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_le) {
+                            result = irgen_context.builder().CreateFCmpULE(rvalue0, rvalue1);
+                        }
+                        else if (opname == Ops::u_ge) {
+                            result = irgen_context.builder().CreateFCmpUGE(rvalue0, rvalue1);
+                        }
                     }
-                    else if (opname == Ops::u_lt) {
-                        result = irgen_context.builder().CreateFCmpULT(rvalue0, rvalue1);
-                    }
-                    else if (opname == Ops::u_gt) {
-                        result = irgen_context.builder().CreateFCmpUGT(rvalue0, rvalue1);
-                    }
-                    else if (opname == Ops::u_le) {
-                        result = irgen_context.builder().CreateFCmpULE(rvalue0, rvalue1);
-                    }
-                    else if (opname == Ops::u_ge) {
-                        result = irgen_context.builder().CreateFCmpUGE(rvalue0, rvalue1);
+
+                    if (ptype.aggregate != OSL::TypeDesc::SCALAR) {
+                        result = irgen_context.builder().CreateAndReduce(result);
                     }
                 }
 
-                if (ptype.aggregate != OSL::TypeDesc::SCALAR) {
-                    result = irgen_context.builder().CreateAndReduce(result);
-                }
+                assert(result);
 
                 result = irgen_context.builder().CreateZExt(
                     result,
