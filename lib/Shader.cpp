@@ -203,12 +203,12 @@ public:
 
     void insertSymbolAddress(const Symbol&, llvm::Value *);
     void insertSymbolValue(const Symbol&, llvm::Value *);
-
     llvm::Value *getSymbolAddress(const Symbol&);
-    llvm::Value *getSymbolValue(const Symbol&);
-    llvm::Value *getSymbolConditionValue(const Symbol&);
 
-    llvm::Value *convertValue(const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
+    llvm::Value *getSymbolValue(llvm::IRBuilder<>&, const Symbol&);
+    llvm::Value *getSymbolConditionValue(llvm::IRBuilder<>&, const Symbol&);
+
+    llvm::Value *convertValue(llvm::IRBuilder<>&, const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
 
     llvm::BasicBlock *createBlock(llvm::StringRef = llvm::StringRef());
     void beginBlock(llvm::BasicBlock *);
@@ -226,6 +226,18 @@ public:
         assert(d_builder);
 
         return *d_builder;
+    }
+
+    llvm::Value *getSymbolValue(const Symbol& symbol) {
+        return getSymbolValue(builder(), symbol);
+    }
+
+    llvm::Value *getSymbolConditionValue(const Symbol& symbol) {
+        return getSymbolConditionValue(builder(), symbol);
+    }
+
+    llvm::Value *convertValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
+        return convertValue(builder(), lhs_type, rhs_type, rhs_value);
     }
 
 private:
@@ -513,23 +525,23 @@ Shader::IRGenContext::getSymbolAddress(const Symbol& symbol) {
 }
 
 llvm::Value *
-Shader::IRGenContext::getSymbolValue(const Symbol& symbol) {
+Shader::IRGenContext::getSymbolValue(llvm::IRBuilder<>& builder, const Symbol& symbol) {
     if (d_symbol_values.count(&symbol) > 0) {
         return d_symbol_values[&symbol];
     }
 
-    return builder().CreateLoad(getSymbolAddress(symbol));
+    return builder.CreateLoad(getSymbolAddress(symbol));
 }
 
 llvm::Value *
-Shader::IRGenContext::getSymbolConditionValue(const Symbol& symbol) {
-    return builder().CreateTrunc(
-        getSymbolValue(symbol),
+Shader::IRGenContext::getSymbolConditionValue(llvm::IRBuilder<>& builder, const Symbol& symbol) {
+    return builder.CreateTrunc(
+        getSymbolValue(builder, symbol),
         llvm::Type::getInt1Ty(d_ll_context));
 }
 
 llvm::Value *
-Shader::IRGenContext::convertValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
+Shader::IRGenContext::convertValue(llvm::IRBuilder<>& builder, const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
     const auto& lhs_traits = OSLScalarTypeTraits::get(lhs_type);
     const auto& rhs_traits = OSLScalarTypeTraits::get(rhs_type);
 
@@ -539,42 +551,42 @@ Shader::IRGenContext::convertValue(const OSL::TypeDesc& lhs_type, const OSL::Typ
     // int-to-int
     if (lhs_traits.type == OSLScalarTypeTraits::Integer && rhs_traits.type == OSLScalarTypeTraits::Integer) {
         if (lhs_traits.width < rhs_traits.width) {
-            rhs_value = builder().CreateTrunc(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateTrunc(rhs_value, lhs_llvm_basetype);
         }
         else if (lhs_traits.width > rhs_traits.width) {
             if (lhs_traits.sign) {
-                rhs_value = builder().CreateSExt(rhs_value, lhs_llvm_basetype);
+                rhs_value = builder.CreateSExt(rhs_value, lhs_llvm_basetype);
             }
             else {
-                rhs_value = builder().CreateZExt(rhs_value, lhs_llvm_basetype);
+                rhs_value = builder.CreateZExt(rhs_value, lhs_llvm_basetype);
             }
         }
     }
     // int-to-fp
     else if (lhs_traits.type == OSLScalarTypeTraits::Real && rhs_traits.type == OSLScalarTypeTraits::Integer) {
         if (rhs_traits.sign) {
-            rhs_value = builder().CreateSIToFP(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateSIToFP(rhs_value, lhs_llvm_basetype);
         }
         else {
-            rhs_value = builder().CreateUIToFP(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateUIToFP(rhs_value, lhs_llvm_basetype);
         }
     }
     // fp-to-int
     else if (lhs_traits.type == OSLScalarTypeTraits::Integer && rhs_traits.type == OSLScalarTypeTraits::Real) {
         if (lhs_traits.sign) {
-            rhs_value = builder().CreateFPToSI(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateFPToSI(rhs_value, lhs_llvm_basetype);
         }
         else {
-            rhs_value = builder().CreateFPToUI(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateFPToUI(rhs_value, lhs_llvm_basetype);
         }
     }
     // fp-to-fp
     else if (lhs_traits.type == OSLScalarTypeTraits::Real && rhs_traits.type == OSLScalarTypeTraits::Real) {
         if (lhs_traits.width < rhs_traits.width) {
-            rhs_value = builder().CreateFPTrunc(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateFPTrunc(rhs_value, lhs_llvm_basetype);
         }
         else if (lhs_traits.width > rhs_traits.width) {
-            rhs_value = builder().CreateFPExt(rhs_value, lhs_llvm_basetype);
+            rhs_value = builder.CreateFPExt(rhs_value, lhs_llvm_basetype);
         }
     }
 
@@ -591,7 +603,7 @@ Shader::IRGenContext::convertValue(const OSL::TypeDesc& lhs_type, const OSL::Typ
             llvm::Value *tmp = llvm::UndefValue::get(lhs_llvm_aggtype);
 
             for (unsigned i = 0, n = (unsigned)lhs_aggregate; i < n; ++i) {
-                tmp = builder().CreateInsertElement(tmp, rhs_value, i);
+                tmp = builder.CreateInsertElement(tmp, rhs_value, i);
             }
 
             rhs_value = tmp;
