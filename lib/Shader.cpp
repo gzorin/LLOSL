@@ -26,6 +26,11 @@ ustring u_nop("nop");
 ustring u_functioncall("functioncall");
 ustring u_return("return");
 ustring u_if("if");
+ustring u_for("for");
+ustring u_while("while");
+ustring u_dowhile("dowhile");
+ustring u_break("break");
+ustring u_continue("continue");
 ustring u_assign("assign");
 ustring u_add("add");
 ustring u_sub("sub");
@@ -916,6 +921,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     struct Frame {
         llvm::BasicBlock *block = nullptr;
         llvm::BasicBlock *merge_block = nullptr;
+        llvm::BasicBlock *continue_block = nullptr, *break_block = nullptr;
         int opcode_index = 0, opcode_end = 0;
     };
 
@@ -925,12 +931,12 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     const auto& args = shader_master.args();
 
     stack.push({
-        body_block, exit_block,
+        body_block, exit_block, nullptr, nullptr,
         shader_master.maincodebegin(), shader_master.maincodeend()
     });
 
     while (!stack.empty()) {
-        auto [ block, merge_block, opcode_index, opcode_end ] = stack.top();
+        auto [ block, merge_block, continue_block, break_block, opcode_index, opcode_end ] = stack.top();
         stack.pop();
 
         irgen_context.beginBlock(block);
@@ -968,7 +974,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto function_opcode_end = opcode_index;
 
                 stack.push({
-                    function_block, block, function_opcode_index, function_opcode_end
+                    function_block, block, nullptr, nullptr, function_opcode_index, function_opcode_end
                 });
 
                 irgen_context.builder().CreateBr(function_block);
@@ -994,7 +1000,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     auto end = opcode_index;
 
                     stack.push({
-                        then_block, block, begin, end
+                        then_block, block, continue_block, break_block, begin, end
                     });
                 }
 
@@ -1006,13 +1012,119 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     auto end = opcode_index;
 
                     stack.push({
-                        else_block, block, begin, end
+                        else_block, block, continue_block, break_block, begin, end
                     });
                 }
 
                 auto value = irgen_context.getSymbolConditionValue(*opargs[0]);
                 irgen_context.builder().CreateCondBr(value, then_block, else_block ? else_block : block);
                 irgen_context.continueBlock(block);
+            }
+
+            if (opname == Ops::u_for || opname == Ops::u_while || opname == Ops::u_dowhile) {
+                // pred_block; always needed:
+                auto pred_block = irgen_context.createBlock("looppred");
+
+                // cond_block: jump(0) to jump(1)
+                auto cond_block = (opcode.jump(1) > opcode.jump(0)) ? irgen_context.createBlock("loopcond")
+                                                                    : pred_block;
+
+                // body_block: jump(1) to jump(2)
+                llvm::BasicBlock *body_block = (opcode.jump(2) > opcode.jump(1)) ? irgen_context.createBlock("loopbody")
+                                                                                 : nullptr;
+
+                // ind_block: jump(2) to jump(3)
+                llvm::BasicBlock *ind_block = (opcode.jump(3) > opcode.jump(2)) ? irgen_context.createBlock("loopind")
+                                                                                : nullptr;
+
+                // next_block: jump(2) or jump(3) to opcode_end
+                llvm::BasicBlock *exit_block = irgen_context.createBlock();
+
+                //
+                llvm::BasicBlock *iter_entry = nullptr,
+                                 *pred_exit  = nullptr,
+                                 *body_exit  = nullptr;
+
+                if (opname == Ops::u_for || opname == Ops::u_while) {
+                    // cond->pred->body->ind->cond
+                    //         +-->exit
+                    iter_entry = cond_block;
+                    pred_exit  = body_block;
+                    body_exit  = ind_block ? ind_block : cond_block;
+                }
+                else if (opname == Ops::u_dowhile) {
+                    // body->cond->pred->ind->body
+                    //               +-->exit
+                    iter_entry = body_block;
+                    pred_exit  = ind_block ? ind_block : body_block;
+                    body_exit  = cond_block;
+                }
+
+                // populate pred_block:
+                {   assert(pred_exit);
+                    auto& builder = irgen_context.builder();
+
+                    llvm::IRBuilder<>::InsertPointGuard guard(builder);
+                    builder.SetInsertPoint(pred_block);
+
+                    auto value = irgen_context.getSymbolConditionValue(*opargs[0]);
+                    builder.CreateCondBr(value, pred_exit, exit_block);
+                }
+
+                // populate cond_block:
+                if (cond_block != pred_block) {
+                    stack.push({
+                        cond_block, pred_block, nullptr, nullptr, opcode.jump(0), opcode.jump(1)
+                    });
+                }
+
+                // populate body_block:
+                if (body_block) {
+                    assert(body_exit);
+                    stack.push({
+                        body_block, body_exit, body_exit, exit_block, opcode.jump(1), opcode.jump(2)
+                    });
+                }
+
+                // populate ind_block:
+                if (ind_block) {
+                    assert(iter_entry);
+                    stack.push({
+                        ind_block, iter_entry, nullptr, nullptr, opcode.jump(2), opcode.jump(3)
+                    });
+                }
+
+                // populate exit_block:
+                stack.push({
+                    exit_block, merge_block, continue_block, break_block, opcode.jump(3), opcode_end
+                });
+
+                opcode_end = opcode.jump(0);
+
+                assert(iter_entry);
+                merge_block = iter_entry;
+
+                continue;
+            }
+
+            if (opname == Ops::u_continue) {
+                assert(continue_block);
+
+                block = irgen_context.createBlock();
+                irgen_context.builder().CreateBr(continue_block);
+                irgen_context.continueBlock(block);
+
+                continue;
+            }
+
+            if (opname == Ops::u_break) {
+                assert(break_block);
+
+                block = irgen_context.createBlock();
+                irgen_context.builder().CreateBr(break_block);
+                irgen_context.continueBlock(block);
+
+                continue;
             }
 
             if (opname == Ops::u_assign) {
