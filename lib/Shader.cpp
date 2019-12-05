@@ -10,6 +10,7 @@
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
+#include <llvm/Support/FormatVariadic.h>
 
 #include <osl_pvt.h>
 #include <oslexec_pvt.h>
@@ -919,6 +920,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     //
     struct Frame {
+        std::string name;
+        unsigned block_id;
         llvm::BasicBlock *block = nullptr;
         llvm::BasicBlock *merge_block = nullptr;
         llvm::BasicBlock *continue_block = nullptr, *break_block = nullptr;
@@ -931,13 +934,25 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     const auto& args = shader_master.args();
 
     stack.push({
+        "body", 0,
         body_block, exit_block, nullptr, nullptr,
         shader_master.maincodebegin(), shader_master.maincodeend()
     });
 
+    unsigned flow_id = 0;
+    std::unordered_map<std::string, unsigned> function_id;
+
     while (!stack.empty()) {
-        auto [ block, merge_block, continue_block, break_block, opcode_index, opcode_end ] = stack.top();
+        auto [ name, block_id, block, merge_block, continue_block, break_block, opcode_index, opcode_end ] = stack.top();
         stack.pop();
+
+        if (block_id == 0) {
+            block->setName(name);
+            ++block_id;
+        }
+        else {
+            block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
+        }
 
         irgen_context.beginBlock(block);
 
@@ -965,16 +980,20 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             }
 
             if (opname == Ops::u_functioncall) {
-                auto name = opargs[0]->get_string().string();
+                auto function_name = opargs[0]->get_string().string();
+                auto it = function_id.insert({ function_name, 0 }).first;
+                function_name = llvm::formatv("call.{0}.{1}", function_name, it->second++);
 
-                auto function_block = irgen_context.createBlock(name);
+                auto function_block = irgen_context.createBlock();
+
                 block = irgen_context.createBlock();
+                block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
 
                 auto function_opcode_index = std::exchange(opcode_index, opcode.jump(0));
                 auto function_opcode_end = opcode_index;
 
                 stack.push({
-                    function_block, block, nullptr, nullptr, function_opcode_index, function_opcode_end
+                    function_name, 0, function_block, block, nullptr, nullptr, function_opcode_index, function_opcode_end
                 });
 
                 irgen_context.builder().CreateBr(function_block);
@@ -988,31 +1007,34 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             }
 
             if (opname == Ops::u_if) {
+                auto if_name = llvm::formatv("if.{0}", flow_id++).str();
+
                 llvm::BasicBlock *then_block = nullptr, *else_block = nullptr;
 
                 block = irgen_context.createBlock();
+                block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
 
                 // 'then' clause:
                 if (opcode.jump(0) >= opcode_index) {
-                    then_block = irgen_context.createBlock("then");
+                    then_block = irgen_context.createBlock();
 
                     auto begin = std::exchange(opcode_index, opcode.jump(0));
                     auto end = opcode_index;
 
                     stack.push({
-                        then_block, block, continue_block, break_block, begin, end
+                        if_name + ".then", 0, then_block, block, continue_block, break_block, begin, end
                     });
                 }
 
                 // 'else' clause:
                 if (opcode.jump(1) > opcode.jump(0)) {
-                    else_block = irgen_context.createBlock("else");
+                    else_block = irgen_context.createBlock();
 
                     auto begin = std::exchange(opcode_index, opcode.jump(1));
                     auto end = opcode_index;
 
                     stack.push({
-                        else_block, block, continue_block, break_block, begin, end
+                        if_name + ".else", 0, else_block, block, continue_block, break_block, begin, end
                     });
                 }
 
@@ -1022,19 +1044,33 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             }
 
             if (opname == Ops::u_for || opname == Ops::u_while || opname == Ops::u_dowhile) {
+                std::string loop_name;
+
+                if (opname == Ops::u_for) {
+                    loop_name = llvm::formatv("for.{0}", flow_id++);
+                }
+                else if (opname == Ops::u_while) {
+                    loop_name = llvm::formatv("while.{0}", flow_id++);
+                }
+                else if (opname == Ops::u_dowhile) {
+                    loop_name = llvm::formatv("dowhile.{0}", flow_id++);
+                }
+
+                auto this_flow_id = flow_id++;
+
                 // pred_block; always needed:
-                auto pred_block = irgen_context.createBlock("looppred");
+                auto pred_block = irgen_context.createBlock();
 
                 // cond_block: jump(0) to jump(1)
-                auto cond_block = (opcode.jump(1) > opcode.jump(0)) ? irgen_context.createBlock("loopcond")
+                auto cond_block = (opcode.jump(1) > opcode.jump(0)) ? irgen_context.createBlock()
                                                                     : pred_block;
 
                 // body_block: jump(1) to jump(2)
-                llvm::BasicBlock *body_block = (opcode.jump(2) > opcode.jump(1)) ? irgen_context.createBlock("loopbody")
+                llvm::BasicBlock *body_block = (opcode.jump(2) > opcode.jump(1)) ? irgen_context.createBlock()
                                                                                  : nullptr;
 
                 // ind_block: jump(2) to jump(3)
-                llvm::BasicBlock *ind_block = (opcode.jump(3) > opcode.jump(2)) ? irgen_context.createBlock("loopind")
+                llvm::BasicBlock *ind_block = (opcode.jump(3) > opcode.jump(2)) ? irgen_context.createBlock()
                                                                                 : nullptr;
 
                 // next_block: jump(2) or jump(3) to opcode_end
@@ -1074,7 +1110,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 // populate cond_block:
                 if (cond_block != pred_block) {
                     stack.push({
-                        cond_block, pred_block, nullptr, nullptr, opcode.jump(0), opcode.jump(1)
+                        loop_name + ".cond", 0, cond_block, pred_block, nullptr, nullptr, opcode.jump(0), opcode.jump(1)
                     });
                 }
 
@@ -1082,7 +1118,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 if (body_block) {
                     assert(body_exit);
                     stack.push({
-                        body_block, body_exit, body_exit, exit_block, opcode.jump(1), opcode.jump(2)
+                        loop_name + ".body", 0, body_block, body_exit, body_exit, exit_block, opcode.jump(1), opcode.jump(2)
                     });
                 }
 
@@ -1090,13 +1126,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 if (ind_block) {
                     assert(iter_entry);
                     stack.push({
-                        ind_block, iter_entry, nullptr, nullptr, opcode.jump(2), opcode.jump(3)
+                        loop_name + ".ind", 0, ind_block, iter_entry, nullptr, nullptr, opcode.jump(2), opcode.jump(3)
                     });
                 }
 
                 // populate exit_block:
                 stack.push({
-                    exit_block, merge_block, continue_block, break_block, opcode.jump(3), opcode_end
+                    name, block_id++, exit_block, merge_block, continue_block, break_block, opcode.jump(3), opcode_end
                 });
 
                 opcode_end = opcode.jump(0);
@@ -1111,6 +1147,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 assert(continue_block);
 
                 block = irgen_context.createBlock();
+                block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
+
                 irgen_context.builder().CreateBr(continue_block);
                 irgen_context.continueBlock(block);
 
@@ -1121,6 +1159,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 assert(break_block);
 
                 block = irgen_context.createBlock();
+
                 irgen_context.builder().CreateBr(break_block);
                 irgen_context.continueBlock(block);
 
