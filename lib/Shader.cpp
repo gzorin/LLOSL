@@ -4,6 +4,7 @@
 #include <llosl/Shader.h>
 
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instruction.h>
@@ -508,6 +509,71 @@ Shader::IRGenContext::beginFunction(
 std::unique_ptr<llvm::Function>
 Shader::IRGenContext::endFunction() {
     assert(d_state == State::Function);
+
+    // Order the blocks topologically:
+    struct Frame {
+        llvm::BasicBlock *block = nullptr;
+        bool back = false;
+    };
+
+    std::stack<Frame> stack;
+
+    enum class Color {
+        White, Grey, Black
+    };
+
+    std::list<llvm::BasicBlock *> blocks;
+    llvm::DenseMap<llvm::BasicBlock *, Color> color;
+
+    std::for_each(
+        d_function->begin(), d_function->end(),
+        [&blocks, &color](auto& block) -> void {
+            blocks.push_back(&block);
+            color[&block] = Color::White;
+        });
+
+    llvm::BasicBlock *insertion_point = nullptr;
+
+    for (auto block : blocks) {
+        if (color[block] != Color::White) {
+            continue;
+        }
+
+        stack.push({ block, false });
+
+        while (!stack.empty()) {
+            auto [ block, back ] = stack.top();
+            stack.pop();
+
+            if (!back) {
+                color[block] = Color::Grey;
+
+                stack.push({ block, true });
+
+                std::for_each(
+                    llvm::pred_begin(block), llvm::pred_end(block),
+                    [&stack, &color](auto pred) -> void {
+                        if (color[pred] != Color::White) {
+                            return;
+                        }
+
+                        stack.push({ pred, false });
+                    });
+            }
+            else {
+                color[block] = Color::Black;
+
+                if (!insertion_point) {
+                    block->moveBefore(&d_function->front());
+                }
+                else {
+                    block->moveAfter(insertion_point);
+                }
+
+                insertion_point = block;
+            }
+        }
+    }
 
     d_state = State::Final;
 
@@ -1097,7 +1163,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 }
 
                 // populate pred_block:
-                {   assert(pred_exit);
+                {   pred_block->setName(loop_name + ".pred");
+
+                    assert(pred_exit);
                     auto& builder = irgen_context.builder();
 
                     llvm::IRBuilder<>::InsertPointGuard guard(builder);
