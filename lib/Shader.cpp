@@ -846,7 +846,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     // Some inputs are passed by reference:
                     const auto& t = s->typespec();
 
-                    if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (!t.is_closure() && (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string())) {
                         input_types.push_back(
                             llvm::PointerType::get(
                                 irgen_context.getLLVMType(t), 0));
@@ -925,7 +925,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     value->setName(name);
 
                     // Some inputs are passed by reference:
-                    if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (!t.is_closure() && (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string())) {
                         irgen_context.insertSymbolAddress(*s, value);
                     }
                     else {
@@ -1047,6 +1047,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             if (opname == Ops::u_functioncall) {
                 auto function_name = opargs[0]->get_string().string();
+                std::cerr << "\t" << function_name << std::endl;
+
                 auto it = function_id.insert({ function_name, 0 }).first;
                 function_name = llvm::formatv("call.{0}.{1}", function_name, it->second++);
 
@@ -1251,10 +1253,18 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         continue;
                     }
 
-                    assert(ltype.is_closure()   == rtype.is_closure());
-                    assert(ltype.is_matrix()    == rtype.is_matrix());
-                    assert(ltype.is_structure() == rtype.is_structure());
-                    assert(ltype.is_string()    == rtype.is_string());
+                    if (ltype.is_closure()) {
+                        assert(rtype.is_closure());
+                    }
+                    else if (ltype.is_matrix()) {
+                        assert(rtype.is_matrix());
+                    }
+                    else if (ltype.is_structure()) {
+                        assert(rtype.is_structure());
+                    }
+                    else if (ltype.is_string()) {
+                        assert(rtype.is_string());
+                    }
 
                     irgen_context.builder().CreateStore(rvalue, lvalue);
 
