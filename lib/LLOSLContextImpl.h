@@ -56,6 +56,9 @@ public:
   llvm::Constant                  *getLLVMDefaultConstant(const OSL::TypeDesc&);
   std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *);
 
+  bool                             isTypePassedByReference(const OSL::TypeDesc&) const;
+  llvm::Type                      *getLLVMTypeForArgument(const OSL::TypeDesc&);
+
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
 

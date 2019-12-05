@@ -188,6 +188,9 @@ public:
 
     llvm::Type     *getLLVMType(const OSL::pvt::TypeSpec&);
 
+    bool            isTypePassedByReference(const OSL::pvt::TypeSpec&) const;
+    llvm::Type     *getLLVMTypeForArgument(const OSL::pvt::TypeSpec&);
+
     llvm::PointerType *getClosureType();
 
     using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
@@ -288,36 +291,33 @@ Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& modu
 
 void
 Shader::IRGenContext::registerRuntimeLibrary() {
-    auto parseType = [this](const char *signature) -> std::tuple<OSL::pvt::TypeSpec, llvm::Type *, const char *> {
+    auto parseType = [this](const char *signature) -> std::tuple<OSL::pvt::TypeSpec, const char *> {
         int advance = 0;
         auto t = OSLCompilerImpl::type_from_code(signature, &advance);
 
-        return { t, getLLVMType(t), signature + advance };
+        return { t, signature + advance };
     };
 
     auto registerFunction = [this, parseType](const char *name, const char *signature) -> void {
-        auto [ t, return_type, next_signature ] = parseType(signature);
-        signature = next_signature;
+        auto [ t, next_signature ] = parseType(signature);
+        std::exchange(signature, next_signature);
+
+        auto return_type = getLLVMType(t);
 
         std::vector<llvm::Type *> param_types;
         bool is_var_arg = false;
 
         while (*signature) {
-            auto [ t, param_type, next_signature ] = parseType(signature);
+            auto [ t, next_signature ] = parseType(signature);
+            auto t_signature = std::exchange(signature, next_signature);
 
-            if (*signature != '*') {
-                if (!t.is_closure() && (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string())) {
-                    param_type = llvm::PointerType::get(param_type, 0);
-                }
-
-                param_types.push_back(param_type);
-            }
-            else {
+            if (*t_signature == '*') {
                 assert(t.simpletype().basetype == TypeDesc::UNKNOWN);
                 is_var_arg = true;
+                continue;
             }
 
-            signature = next_signature;
+            param_types.push_back(getLLVMTypeForArgument(t));
         }
 
         auto function = llvm::Function::Create(
@@ -362,6 +362,24 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     }
 
     return d_context.getLLVMType(t.simpletype());
+}
+
+bool
+Shader::IRGenContext::isTypePassedByReference(const OSL::pvt::TypeSpec& t) const {
+    if (!t.is_closure() && t.is_structure_based()) {
+        return true;
+    }
+
+    return d_context.isTypePassedByReference(t.simpletype());
+}
+
+llvm::Type *
+Shader::IRGenContext::getLLVMTypeForArgument(const OSL::pvt::TypeSpec& t) {
+    if (!t.is_closure() && t.is_structure_based()) {
+        return llvm::PointerType::get(getLLVMType(t), 0);
+    }
+
+    return d_context.getLLVMTypeForArgument(t.simpletype());
 }
 
 llvm::PointerType *
@@ -895,18 +913,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             switch (s->symtype()) {
                 case SymTypeParam: {
-                    // Some inputs are passed by reference:
-                    const auto& t = s->typespec();
-
-                    if (!t.is_closure() && (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string())) {
-                        input_types.push_back(
-                            llvm::PointerType::get(
-                                irgen_context.getLLVMType(t), 0));
-                    }
-                    else {
-                        input_types.push_back(irgen_context.getLLVMType(t));
-                    }
-
+                    input_types.push_back(irgen_context.getLLVMTypeForArgument(s->typespec()));
                 } return;
                 case SymTypeOutputParam: {
                     return_types.push_back(irgen_context.getLLVMType(s->typespec()));
@@ -963,7 +970,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     auto address = irgen_context.builder().CreateStructGEP(nullptr, shaderglobals, it->second);
 
                     if (s->everwritten() ||
-                        t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                        irgen_context.isTypePassedByReference(t)) {
                         address->setName(name);
                         irgen_context.insertSymbolAddress(*s, address);
                     }
@@ -977,7 +984,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     value->setName(name);
 
                     // Some inputs are passed by reference:
-                    if (!t.is_closure() && (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string())) {
+                    if (irgen_context.isTypePassedByReference(t)) {
                         irgen_context.insertSymbolAddress(*s, value);
                     }
                     else {
@@ -1004,7 +1011,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     assert(value);
 
                     // Some constants will be passed on by reference:
-                    if (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string()) {
+                    if (irgen_context.isTypePassedByReference(t)) {
                         auto address = irgen_context.builder().CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
                         irgen_context.builder().CreateStore(value, address);
                         irgen_context.insertSymbolAddress(*s, address);

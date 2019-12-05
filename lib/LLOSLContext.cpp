@@ -390,6 +390,32 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p) {
     return { nullptr, p };
 }
 
+bool
+LLOSLContextImpl::isTypePassedByReference(const OSL::TypeDesc& t) const {
+    OSL::TypeDesc::BASETYPE  basetype  = (OSL::TypeDesc::BASETYPE)t.basetype;
+    OSL::TypeDesc::AGGREGATE aggregate = (OSL::TypeDesc::AGGREGATE)t.aggregate;
+    auto arraylen  = t.arraylen;
+
+    return arraylen > 0 ||
+           aggregate == OSL::TypeDesc::MATRIX33 || aggregate == OSL::TypeDesc::MATRIX44 ||
+           basetype == OSL::TypeDesc::STRING;
+}
+
+llvm::Type *
+LLOSLContextImpl::getLLVMTypeForArgument(const OSL::TypeDesc& t) {
+    OSL::TypeDesc::BASETYPE  basetype  = (OSL::TypeDesc::BASETYPE)t.basetype;
+    OSL::TypeDesc::AGGREGATE aggregate = (OSL::TypeDesc::AGGREGATE)t.aggregate;
+    auto arraylen  = t.arraylen;
+
+    if (arraylen > 0 ||
+        aggregate == OSL::TypeDesc::MATRIX33 || aggregate == OSL::TypeDesc::MATRIX44 ||
+        basetype == OSL::TypeDesc::STRING) {
+        return llvm::PointerType::get(getLLVMType(t), 0);
+    }
+
+    return getLLVMType(t);
+}
+
 void
 LLOSLContextImpl::registerClosures() {
     d_bxdf_module.reset(new llvm::Module("llosl.bxdf", d_llcontext));
