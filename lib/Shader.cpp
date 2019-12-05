@@ -272,7 +272,7 @@ private:
 
     llvm::PointerType *d_closure_type = nullptr;
     llvm::Type *d_string_type = nullptr;
-    llvm::DenseMap<int, llvm::Type *> d_struct_types;
+    std::unordered_map<int, llvm::Type *> d_struct_types;
     llvm::Type *d_shaderglobals_type = nullptr;
 
     std::unique_ptr<llvm::Function> d_function;
@@ -339,7 +339,9 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     }
 
     if (t.is_structure_based()) {
-        if (d_struct_types.count(t.structure()) == 0) {
+        auto it = d_struct_types.find(t.structure());
+
+        if (it == d_struct_types.end()) {
             auto struct_spec = t.structspec();
             std::vector<llvm::Type *> member_types;
             member_types.reserve(struct_spec->numfields());
@@ -350,18 +352,20 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
             }
 
             auto struct_type = llvm::StructType::get(d_ll_context, member_types);
-            d_struct_types[t.structure()] = struct_type;
+            it = d_struct_types.insert({ t.structure(), struct_type }).first;
         }
+
+        assert(it != d_struct_types.end());
 
         if (t.is_structure_array()) {
             return llvm::ArrayType::get(
-                d_struct_types[t.structure()], t.arraylength());
+                it->second, t.arraylength());
         }
 
-        return d_struct_types[t.structure()];
+        return it->second;
     }
 
-    return d_context.getLLVMType(t.simpletype());
+    return d_context.getLLVMType(t.simpletype(), false);
 }
 
 bool
@@ -379,7 +383,7 @@ Shader::IRGenContext::getLLVMTypeForArgument(const OSL::pvt::TypeSpec& t) {
         return llvm::PointerType::get(getLLVMType(t), 0);
     }
 
-    return d_context.getLLVMTypeForArgument(t.simpletype());
+    return d_context.getLLVMTypeForArgument(t.simpletype(), false);
 }
 
 llvm::PointerType *
@@ -492,7 +496,7 @@ Shader::IRGenContext::getLLVMDefaultConstant(const OSL::pvt::TypeSpec& t) {
                 members);
     }
 
-    return d_context.getLLVMDefaultConstant(t.simpletype());
+    return d_context.getLLVMDefaultConstant(t.simpletype(), false);
 }
 
 std::pair<llvm::Constant *, const void *>
@@ -550,7 +554,7 @@ Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *p
         };
     }
 
-    return d_context.getLLVMConstant(t.simpletype(), p);
+    return d_context.getLLVMConstant(t.simpletype(), p, false);
 }
 
 llvm::Constant *
@@ -688,7 +692,7 @@ Shader::IRGenContext::convertValue(llvm::IRBuilder<>& builder, const OSL::TypeDe
     const auto& rhs_traits = OSLScalarTypeTraits::get(rhs_type);
 
     auto lhs_llvm_basetype = d_context.getLLVMType(
-        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype));
+        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype), false);
 
     // int-to-int
     if (lhs_traits.type == OSLScalarTypeTraits::Integer && rhs_traits.type == OSLScalarTypeTraits::Integer) {
@@ -738,7 +742,8 @@ Shader::IRGenContext::convertValue(llvm::IRBuilder<>& builder, const OSL::TypeDe
 
     auto lhs_llvm_aggtype = d_context.getLLVMType(
         OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype,
-                      (OSL::TypeDesc::AGGREGATE)lhs_type.aggregate));
+                      (OSL::TypeDesc::AGGREGATE)lhs_type.aggregate),
+        false);
 
     if (lhs_aggregate > 1 && rhs_aggregate == 1) {
         if (lhs_aggregate >= 2 && lhs_aggregate <= 4) {
@@ -1557,7 +1562,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 result = irgen_context.builder().CreateZExt(
                     result,
                     d_context->getLLVMType(
-                        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)ltype.simpletype().basetype)));
+                        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)ltype.simpletype().basetype),
+                        false));
 
                 irgen_context.builder().CreateStore(result, lvalue);
 

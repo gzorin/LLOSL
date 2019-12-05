@@ -52,12 +52,12 @@ public:
   const llvm::LLVMContext&         getLLContext() const { return d_llcontext; }
   llvm::LLVMContext&               getLLContext()       { return d_llcontext; }
 
-  llvm::Type                      *getLLVMType(const OSL::TypeDesc&);
-  llvm::Constant                  *getLLVMDefaultConstant(const OSL::TypeDesc&);
-  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *);
+  llvm::Type                      *getLLVMType(const OSL::TypeDesc&, bool);
+  llvm::Constant                  *getLLVMDefaultConstant(const OSL::TypeDesc&, bool);
+  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *, bool);
 
   bool                             isTypePassedByReference(const OSL::TypeDesc&) const;
-  llvm::Type                      *getLLVMTypeForArgument(const OSL::TypeDesc&);
+  llvm::Type                      *getLLVMTypeForArgument(const OSL::TypeDesc&, bool);
 
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }

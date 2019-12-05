@@ -49,9 +49,9 @@ public:
   const llvm::LLVMContext&   getLLContext() const;
   llvm::LLVMContext&         getLLContext();
 
-  llvm::Type                *getLLVMType(const OSL::TypeDesc&);
-  llvm::Constant            *getLLVMDefaultConstant(const OSL::TypeDesc&);
-  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *);
+  llvm::Type                *getLLVMType(const OSL::TypeDesc&, bool);
+  llvm::Constant            *getLLVMDefaultConstant(const OSL::TypeDesc&, bool);
+  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *, bool);
 
   llvm::Expected<Builder>    getBuilder();
 
