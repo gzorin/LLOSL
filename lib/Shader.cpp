@@ -14,6 +14,7 @@
 #include <llvm/Support/FormatVariadic.h>
 
 #include <osl_pvt.h>
+#include <oslcomp_pvt.h>
 #include <oslexec_pvt.h>
 #include <runtimeoptimize.h>
 
@@ -256,11 +257,15 @@ private:
         Final
     };
 
+    void registerRuntimeLibrary();
+
     LLOSLContextImpl &d_context;
     llvm::LLVMContext& d_ll_context;
     llvm::Module& d_module;
 
     State d_state = State::Initial;
+
+    std::unordered_map<std::string, llvm::Function *> d_runtime_library;
 
     llvm::PointerType *d_closure_type = nullptr;
     llvm::Type *d_string_type = nullptr;
@@ -278,6 +283,53 @@ Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& modu
     : d_context(context)
     , d_ll_context(d_context.getLLContext())
     , d_module(module) {
+    registerRuntimeLibrary();
+}
+
+void
+Shader::IRGenContext::registerRuntimeLibrary() {
+    auto parseType = [this](const char *signature) -> std::tuple<OSL::pvt::TypeSpec, llvm::Type *, const char *> {
+        int advance = 0;
+        auto t = OSLCompilerImpl::type_from_code(signature, &advance);
+
+        return { t, getLLVMType(t), signature + advance };
+    };
+
+    auto registerFunction = [this, parseType](const char *name, const char *signature) -> void {
+        auto [ t, return_type, next_signature ] = parseType(signature);
+        signature = next_signature;
+
+        std::vector<llvm::Type *> param_types;
+        bool is_var_arg = false;
+
+        while (*signature) {
+            auto [ t, param_type, next_signature ] = parseType(signature);
+
+            if (*signature != '*') {
+                if (!t.is_closure() && (t.is_matrix() || t.is_structure() || t.is_sized_array() || t.is_string())) {
+                    param_type = llvm::PointerType::get(param_type, 0);
+                }
+
+                param_types.push_back(param_type);
+            }
+            else {
+                assert(t.simpletype().basetype == TypeDesc::UNKNOWN);
+                is_var_arg = true;
+            }
+
+            signature = next_signature;
+        }
+
+        auto function = llvm::Function::Create(
+            llvm::FunctionType::get(return_type, param_types, false),
+            llvm::GlobalValue::ExternalLinkage, name, &d_module);
+
+        d_runtime_library[name] = function;
+    };
+
+    #define DECL(name,signature) registerFunction(#name, signature);
+    #include "builtindecl.h"
+    #undef DECL
 }
 
 llvm::Type *

@@ -88,6 +88,8 @@ LLOSLContextImpl::getLLVMType(const OSL::TypeDesc& t) {
     }
 
     switch (basetype) {
+        case OSL::TypeDesc::NONE:
+            return llvm::Type::getVoidTy(d_llcontext);
         case OSL::TypeDesc::CHAR:
         case OSL::TypeDesc::UCHAR:
             return llvm::Type::getInt8Ty(d_llcontext);

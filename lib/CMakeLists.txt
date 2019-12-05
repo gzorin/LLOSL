@@ -16,6 +16,7 @@ target_include_directories(LLOSL BEFORE
   ${CMAKE_SOURCE_DIR}/include
   ${LLOSL_DEPS_DIR}/include
   ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/include
+  ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/liboslcomp
   ${CMAKE_SOURCE_DIR}/extsrc/OpenShadingLanguage/src/liboslexec)
 
 target_include_directories(LLOSL
