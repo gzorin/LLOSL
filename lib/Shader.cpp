@@ -1397,13 +1397,35 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& rtype1 = opargs[2]->typespec();
 
                 auto lvalue  = irgen_context.getSymbolAddress(*opargs[0]);
-                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
-                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
 
+                // Closure arithmetic:
                 if (ltype.is_closure()) {
+                    if (opname == Ops::u_add) {
+                        assert(rtype0.is_closure() && rtype1.is_closure());
+
+                        auto rvalue0 = irgen_context.getSymbolAddress(*opargs[1]);
+                        auto rvalue1 = irgen_context.getSymbolAddress(*opargs[2]);
+
+                        auto closure_value = irgen_context.callLibraryFunction(
+                            "osl_add_closure_closure", std::vector<llvm::Value *>{
+                                renderer,
+                                rvalue0, rvalue1
+                            });
+
+                        irgen_context.builder().CreateStore(closure_value, lvalue);
+
+                        continue;
+                    }
+
                     // TODO
                     continue;
                 }
+
+                assert(!ltype.is_closure());
+
+                // Scalar and vector arithmetic:
+                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
+                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
 
                 rvalue0 = irgen_context.convertValue(ltype.simpletype(),
                                                      rtype0.simpletype(),
