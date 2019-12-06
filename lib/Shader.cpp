@@ -260,6 +260,8 @@ private:
 
     void registerRuntimeLibrary();
 
+    llvm::Value *annotateClosureStorage(llvm::Value *);
+
     LLOSLContextImpl &d_context;
     llvm::LLVMContext& d_ll_context;
     llvm::Module& d_module;
@@ -278,6 +280,8 @@ private:
 
     llvm::BasicBlock *d_block = nullptr;
     std::unique_ptr<llvm::IRBuilder<> > d_builder;
+
+    llvm::Function *d_closure_storage_annotation = nullptr;
 };
 
 Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& module)
@@ -285,6 +289,14 @@ Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& modu
     , d_ll_context(d_context.getLLContext())
     , d_module(module) {
     registerRuntimeLibrary();
+
+    d_closure_storage_annotation =
+        llvm::Function::Create(
+            llvm::FunctionType::get(
+                llvm::Type::getVoidTy(d_ll_context),
+                std::vector<llvm::Type *>{ llvm::PointerType::get(d_context.getLLVMClosureType(), 0) },
+                false),
+            llvm::GlobalValue::ExternalLinkage, "llosl_closure_storage_annotation", &d_module);
 }
 
 void
@@ -639,24 +651,31 @@ Shader::IRGenContext::endFunction() {
 
 void
 Shader::IRGenContext::insertSymbolAddress(const Symbol& symbol, llvm::Value *value) {
-    d_symbol_addresses[&symbol] = value;
+    auto [ it, inserted ] = d_symbol_addresses.insert({ &symbol, value });
+
+    if (inserted && symbol.typespec().is_closure()) {
+        annotateClosureStorage(value);
+    }
 }
 
 void
 Shader::IRGenContext::insertSymbolValue(const Symbol& symbol, llvm::Value *value) {
-    d_symbol_values[&symbol] = value;
+    d_symbol_values.insert({ &symbol, value });
 }
 
 llvm::Value *
 Shader::IRGenContext::getSymbolAddress(const Symbol& symbol) {
-    assert(d_symbol_addresses.count(&symbol) > 0);
-    return d_symbol_addresses[&symbol];
+    auto it = d_symbol_addresses.find(&symbol);
+    assert(it != d_symbol_addresses.end());
+
+    return it->second;
 }
 
 llvm::Value *
 Shader::IRGenContext::getSymbolValue(llvm::IRBuilder<>& builder, const Symbol& symbol) {
-    if (d_symbol_values.count(&symbol) > 0) {
-        return d_symbol_values[&symbol];
+    auto it = d_symbol_values.find(&symbol);
+    if (it != d_symbol_values.end()) {
+        return it->second;
     }
 
     return builder.CreateLoad(getSymbolAddress(symbol));
@@ -776,6 +795,16 @@ Shader::IRGenContext::endBlock() {
     d_builder.reset();
 
     d_state = State::Function;
+}
+
+llvm::Value *
+Shader::IRGenContext::annotateClosureStorage(llvm::Value *value) {
+    assert(value->getType() == llvm::PointerType::get(d_context.getLLVMClosureType(), 0));
+    assert(d_closure_storage_annotation);
+
+    return builder().CreateCall(
+        d_closure_storage_annotation,
+        std::vector<llvm::Value *>{ value });
 }
 
 Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
@@ -996,8 +1025,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     }
                 } break;
                 case SymTypeOutputParam: {
-                    auto value = irgen_context.builder().CreateStructGEP(nullptr, result, output_index++, name);
-                    irgen_context.insertSymbolAddress(*s, value);
+                    auto address = irgen_context.builder().CreateStructGEP(nullptr, result, output_index++, name);
+                    irgen_context.insertSymbolAddress(*s, address);
                 } break;
                 case SymTypeLocal:
                 case SymTypeTemp: {
