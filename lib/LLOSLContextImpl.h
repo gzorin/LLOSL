@@ -30,6 +30,7 @@ namespace llvm {
 class FunctionType;
 class LLVMContext;
 class Module;
+class PointerType;
 class StructType;
 } // End namespace llvm
 
@@ -64,6 +65,12 @@ public:
   llvm::Type                      *getLLVMTypeForArgument(const OSL::TypeDesc&, bool);
 
   llvm::StructType                *getLLVMStringType();
+
+  llvm::StructType                *getLLVMClosureType();
+  llvm::Constant                  *getLLVMClosureDefaultConstant();
+
+  llvm::PointerType               *getLLVMClosurePointerType();
+  llvm::Constant                  *getLLVMClosurePointerDefaultConstant();
 
   //
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
@@ -155,6 +162,7 @@ private:
   std::unique_ptr<llvm::Module> d_bxdf_module;
 
   llvm::StructType *d_string_type = nullptr;
+  llvm::StructType *d_closure_type = nullptr;
 
   std::unique_ptr<OSL::ShadingSystem> d_shading_system;
   OSL::ShadingContext *d_shading_context;

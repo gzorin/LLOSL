@@ -191,8 +191,6 @@ public:
     bool            isTypePassedByReference(const OSL::pvt::TypeSpec&) const;
     llvm::Type     *getLLVMTypeForArgument(const OSL::pvt::TypeSpec&);
 
-    llvm::PointerType *getClosureType();
-
     using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
 
     llvm::Type                *getShaderGlobalsType();
@@ -335,7 +333,7 @@ Shader::IRGenContext::registerRuntimeLibrary() {
 llvm::Type *
 Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
     if (t.is_closure()) {
-        return getClosureType();
+        return d_context.getLLVMClosureType();
     }
 
     if (t.is_structure_based()) {
@@ -370,7 +368,7 @@ Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
 
 bool
 Shader::IRGenContext::isTypePassedByReference(const OSL::pvt::TypeSpec& t) const {
-    if (!t.is_closure() && t.is_structure_based()) {
+    if (t.is_closure() || t.is_structure_based()) {
         return true;
     }
 
@@ -379,21 +377,11 @@ Shader::IRGenContext::isTypePassedByReference(const OSL::pvt::TypeSpec& t) const
 
 llvm::Type *
 Shader::IRGenContext::getLLVMTypeForArgument(const OSL::pvt::TypeSpec& t) {
-    if (!t.is_closure() && t.is_structure_based()) {
+    if (t.is_closure() || t.is_structure_based()) {
         return llvm::PointerType::get(getLLVMType(t), 0);
     }
 
     return d_context.getLLVMTypeForArgument(t.simpletype(), false);
-}
-
-llvm::PointerType *
-Shader::IRGenContext::getClosureType() {
-    if (!d_closure_type) {
-        d_closure_type = llvm::PointerType::get(
-            llvm::Type::getInt8Ty(d_ll_context), 0);
-    }
-
-    return d_closure_type;
 }
 
 llvm::Type *
@@ -426,7 +414,7 @@ Shader::IRGenContext::getShaderGlobalsType() {
                         llvm::Type::getInt8Ty(d_ll_context), 0),            // context
                 getLLVMType(TypeDesc::TypeMatrix),      // object2common
                 getLLVMType(TypeDesc::TypeMatrix),      // shader2common
-                getLLVMType(OSL::pvt::TypeSpec(TypeDesc::TypeColor, true)), // Ci
+                d_context.getLLVMClosureType(),         // Ci
             },
             "OSL::ShaderGlobals");
     }
@@ -461,9 +449,7 @@ Shader::IRGenContext::getLLVMDefaultConstant(const OSL::pvt::TypeSpec& t) {
     auto llvm_type = getLLVMType(t);
 
     if (t.is_closure()) {
-        // TODO
-        return
-            llvm::ConstantPointerNull::get(getClosureType());
+        return d_context.getLLVMClosureDefaultConstant();
     }
 
     if (t.is_structure_array()) {
@@ -504,11 +490,8 @@ Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *p
     auto llvm_type = getLLVMType(t);
 
     if (t.is_closure()) {
-        // TODO
-        return {
-            llvm::ConstantPointerNull::get(getClosureType()),
-            p
-        };
+        assert(false);
+        return { nullptr, p };
     }
 
     if (t.is_structure_array()) {
@@ -1328,7 +1311,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         assert(llvm::isa<llvm::ConstantInt>(rvalue));
                         assert(llvm::cast<llvm::ConstantInt>(rvalue)->isZero());
                         irgen_context.builder().CreateStore(
-                            llvm::ConstantPointerNull::get(irgen_context.getClosureType()),
+                            d_context->getLLVMClosureDefaultConstant(),
                             lvalue);
                         continue;
                     }
@@ -1481,16 +1464,17 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     assert(opname == Ops::u_eq || opname == Ops::u_neq);
 
                     auto closure = rtype0.is_closure() ? rvalue0 : rvalue1;
+                    auto closure_data = irgen_context.builder().CreateExtractValue(closure, std::vector<unsigned>{ 0 });
 
                     if (opname == Ops::u_eq) {
                         result = irgen_context.builder().CreateICmpEQ(
-                            closure,
-                            llvm::ConstantPointerNull::get(irgen_context.getClosureType()));
+                            closure_data,
+                            d_context->getLLVMClosurePointerDefaultConstant());
                     }
                     else if (opname == Ops::u_neq) {
                         result = irgen_context.builder().CreateICmpNE(
-                            closure,
-                            llvm::ConstantPointerNull::get(irgen_context.getClosureType()));
+                            closure_data,
+                            d_context->getLLVMClosurePointerDefaultConstant());
                     }
                 }
                 else if (rtype0.is_string() || rtype1.is_string()) {

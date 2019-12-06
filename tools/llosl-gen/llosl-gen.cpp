@@ -42,7 +42,7 @@ main(int argc, char **argv) {
   }
 
   std::unique_ptr<llvm::LLVMContext> llvm_context = std::make_unique<llvm::LLVMContext>();
-  std::unique_ptr<llosl::LLOSLContext> llosl_context = std::make_unique<llosl::LLOSLContext>(*llvm_context);
+  std::unique_ptr<llosl::LLOSLContext> llosl_context = std::make_unique<llosl::LLOSLContext>(*llvm_context, 1);
 
   auto shader_result = llosl_context->createShaderFromFile(input_filename);
 

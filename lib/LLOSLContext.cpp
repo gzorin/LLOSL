@@ -420,6 +420,38 @@ LLOSLContextImpl::getLLVMStringType() {
     return d_string_type;
 }
 
+llvm::StructType *
+LLOSLContextImpl::getLLVMClosureType() {
+    if (!d_closure_type) {
+        d_closure_type = llvm::StructType::create(
+            d_llcontext,
+            std::vector<llvm::Type *>{
+                getLLVMClosurePointerType()
+            },
+            "OSL::Closure");
+    }
+
+    return d_closure_type;
+}
+
+llvm::Constant *
+LLOSLContextImpl::getLLVMClosureDefaultConstant() {
+    return llvm::ConstantStruct::get(
+        getLLVMClosureType(),
+        std::vector<llvm::Constant*>{ getLLVMClosurePointerDefaultConstant() });
+}
+
+llvm::PointerType *
+LLOSLContextImpl::getLLVMClosurePointerType() {
+    return llvm::PointerType::get(
+        llvm::Type::getInt8Ty(d_llcontext), d_bxdf_address_space);
+}
+
+llvm::Constant *
+LLOSLContextImpl::getLLVMClosurePointerDefaultConstant() {
+    return llvm::ConstantPointerNull::get(getLLVMClosurePointerType());
+}
+
 void
 LLOSLContextImpl::registerClosures() {
     d_bxdf_module.reset(new llvm::Module("llosl.bxdf", d_llcontext));
