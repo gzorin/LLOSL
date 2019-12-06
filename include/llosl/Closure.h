@@ -41,6 +41,15 @@ public:
     param_iterator       param_end()          { return d_param_list.end();   }
     const_param_iterator param_end() const    { return d_param_list.end();   }
 
+    using param_reverse_iterator = param_list_type::reverse_iterator;
+    using const_param_reverse_iterator = param_list_type::const_reverse_iterator;
+
+    param_reverse_iterator       param_rbegin()       { return d_param_list.rbegin(); }
+    const_param_reverse_iterator param_rbegin() const { return d_param_list.rbegin(); }
+
+    param_reverse_iterator       param_rend()         { return d_param_list.rend();   }
+    const_param_reverse_iterator param_rend() const   { return d_param_list.rend();   }
+
     unsigned             param_count() const  { return d_param_list.size(); }
 
     llvm::StructType    *params_type() const  { return d_params_type; }

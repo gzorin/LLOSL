@@ -1,8 +1,10 @@
 #include "BuilderImpl.h"
 #include "LLOSLContextImpl.h"
 
+#include <llosl/Closure.h>
 #include <llosl/Shader.h>
 
+#include <llvm/ADT/APInt.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -53,6 +55,7 @@ ustring u_xor("xor");
 ustring u_shl("shl");
 ustring u_shr("shr");
 ustring u_compl("compl");
+ustring u_closure("closure");
 
 } }
 
@@ -249,6 +252,8 @@ public:
         return convertValue(builder(), lhs_type, rhs_type, rhs_value);
     }
 
+    llvm::Value *callLibraryFunction(llvm::StringRef, llvm::ArrayRef<llvm::Value *> = llvm::None);
+
 private:
 
     enum class State {
@@ -268,7 +273,7 @@ private:
 
     State d_state = State::Initial;
 
-    std::unordered_map<std::string, llvm::Function *> d_runtime_library;
+    llvm::StringMap<llvm::Function *> d_runtime_library;
 
     llvm::PointerType *d_closure_type = nullptr;
     llvm::Type *d_string_type = nullptr;
@@ -334,7 +339,7 @@ Shader::IRGenContext::registerRuntimeLibrary() {
             llvm::FunctionType::get(return_type, param_types, false),
             llvm::GlobalValue::ExternalLinkage, name, &d_module);
 
-        d_runtime_library[name] = function;
+        d_runtime_library.insert({ name, function });
     };
 
     #define DECL(name,signature) registerFunction(#name, signature);
@@ -448,9 +453,10 @@ Shader::IRGenContext::getShaderGlobalsIndex() {
         { OSL::ustring("time"),          17 },
         { OSL::ustring("dtime"),         18 },
         { OSL::ustring("dPdtime"),       19 },
+        { OSL::ustring("renderer"),      20 },
         { OSL::ustring("object2common"), 21 },
         { OSL::ustring("shader2common"), 22 },
-        { OSL::ustring("Ci"),            23 }
+        { OSL::ustring("Ci"),            23 },
     };
 
     return index;
@@ -807,6 +813,14 @@ Shader::IRGenContext::annotateClosureStorage(llvm::Value *value) {
         std::vector<llvm::Value *>{ value });
 }
 
+llvm::Value *
+Shader::IRGenContext::callLibraryFunction(llvm::StringRef name, llvm::ArrayRef<llvm::Value *> args) {
+    auto it = d_runtime_library.find(name);
+    assert(it != d_runtime_library.end());
+
+    return builder().CreateCall(it->second, args);
+}
+
 Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
     : d_context(&context) {
     auto& ll_context = d_context->getLLContext();
@@ -980,6 +994,12 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     auto shaderglobals = input_it++;
     shaderglobals->setName("shaderglobals");
 
+    auto renderer = irgen_context.builder().CreateLoad(
+        irgen_context.builder().CreateStructGEP(
+            nullptr, shaderglobals,
+            irgen_context.getShaderGlobalsIndex().find(OSL::ustring("renderer"))->second));
+    renderer->setName("llosl_renderer");
+
     unsigned output_index = 0;
 
     std::for_each(
@@ -1139,7 +1159,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             if (opname == Ops::u_functioncall) {
                 auto function_name = opargs[0]->get_string().string();
-                std::cerr << "\t" << function_name << std::endl;
 
                 auto it = function_id.insert({ function_name, 0 }).first;
                 function_name = llvm::formatv("call.{0}.{1}", function_name, it->second++);
@@ -1650,6 +1669,126 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 irgen_context.builder().CreateStore(
                     irgen_context.builder().CreateNeg(rvalue),
                     lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::u_closure) {
+                auto it_arg = opargs.begin();
+                auto lvalue  = irgen_context.getSymbolAddress(*(*it_arg++));
+
+                auto weight = (!(*it_arg)->typespec().is_string()) ? irgen_context.getSymbolValue(*(*it_arg++)) : nullptr;
+
+                auto closure_name = (*it_arg++)->get_string();
+                auto closure = d_context->getClosure(llvm::StringRef(closure_name.data(), closure_name.length()));
+
+                // TODO: better error signalling:
+                assert(closure);
+
+                // Create the closure component:
+                auto params_type = closure->params_type();
+                auto params_type_size = d_module->getDataLayout().getStructLayout(params_type)->getSizeInBytes();
+
+                auto closure_value = weight
+                    ? irgen_context.callLibraryFunction(
+                        "osl_allocate_weighted_closure_component", std::vector<llvm::Value *>{
+                            renderer,
+                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, closure->id(), true)),
+                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, 0, true)),
+                            weight
+                        })
+                    : irgen_context.callLibraryFunction(
+                        "osl_allocate_closure_component", std::vector<llvm::Value *>{
+                            renderer,
+                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, closure->id(), true)),
+                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, 0, true))
+                        });
+
+                // Load parameters:
+                auto params =
+                    irgen_context.builder().CreateBitCast(
+                        irgen_context.builder().CreateExtractValue(closure_value, std::vector<unsigned>{ 0 }),
+                        llvm::PointerType::get(params_type, d_context->bxdf_address_space()));
+
+                struct Frame {
+                    OSL::TypeDesc type;
+                    llvm::Value *lhs_value = nullptr, *rhs_value = nullptr;
+                };
+
+                std::stack<Frame> stack;
+
+                auto     rhs_it = opargs.rbegin(), rhs_it_end = std::vector<const Symbol *>::reverse_iterator(it_arg);
+
+                // TODO: better error signalling:
+                assert(std::distance(rhs_it, rhs_it_end) == closure->param_count());
+
+                auto     lhs_type_index  = closure->param_rbegin();
+                unsigned lhs_value_index = closure->param_count() - 1;
+
+                for (; rhs_it != rhs_it_end; ++rhs_it, ++lhs_type_index, --lhs_value_index) {
+                    auto arg = *rhs_it;
+
+                    const auto& ltype = *lhs_type_index;
+                    const auto& rtype = arg->typespec().simpletype();
+
+                    auto lvalue = irgen_context.builder().CreateStructGEP(nullptr, params, lhs_value_index);
+                    auto rvalue = irgen_context.convertValue(ltype, rtype, irgen_context.getSymbolValue(*arg));
+
+                    stack.push({
+                        ltype, lvalue, rvalue
+                    });
+                }
+
+                while (!stack.empty()) {
+                    auto [ t, lvalue, rvalue ] = stack.top();
+                    stack.pop();
+
+                    OSL::TypeDesc::BASETYPE  basetype  = (OSL::TypeDesc::BASETYPE)t.basetype;
+                    OSL::TypeDesc::AGGREGATE aggregate = (OSL::TypeDesc::AGGREGATE)t.aggregate;
+                    auto arraylen  = t.arraylen;
+
+                    if (arraylen > 0) {
+                        // TODO
+                        continue;
+                    }
+
+                    if (aggregate != OSL::TypeDesc::SCALAR) {
+                        unsigned n = 1;
+                        OSL::TypeDesc::AGGREGATE column_aggregate = OSL::TypeDesc::SCALAR;
+
+                        switch (aggregate) {
+                            case OSL::TypeDesc::VEC2    : n = 2; break;
+                            case OSL::TypeDesc::VEC3    : n = 3; break;
+                            case OSL::TypeDesc::VEC4    : n = 4; break;
+                            case OSL::TypeDesc::MATRIX33: n = 3; column_aggregate = OSL::TypeDesc::VEC3; break;
+                            case OSL::TypeDesc::MATRIX44: n = 4; column_aggregate = OSL::TypeDesc::VEC4; break;
+                            default: break;
+                        }
+
+                        switch (aggregate) {
+                            case OSL::TypeDesc::VEC2:
+                            case OSL::TypeDesc::VEC3:
+                            case OSL::TypeDesc::VEC4:
+                                for (unsigned i = 0; i < n; ++i) {
+                                    irgen_context.builder().CreateStore(
+                                        irgen_context.builder().CreateExtractElement(rvalue, i),
+                                        irgen_context.builder().CreateConstInBoundsGEP2_32(nullptr, lvalue, 0, i));
+                                }
+
+                                continue;
+                            case OSL::TypeDesc::MATRIX33:
+                            case OSL::TypeDesc::MATRIX44:
+                                // TODO
+                                continue;
+                            default:
+                                continue;
+                        }
+                    }
+
+                    irgen_context.builder().CreateStore(rvalue, lvalue);
+                }
+
+                irgen_context.builder().CreateStore(closure_value, lvalue);
 
                 continue;
             }
