@@ -1,5 +1,6 @@
 #include <llosl/Builder.h>
 #include <llosl/BXDF.h>
+#include <llosl/Closure.h>
 #include <llosl/LLOSLContext.h>
 #include <llosl/Shader.h>
 #include <llosl/ShaderGroup.h>
@@ -12,6 +13,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Support/FormatVariadic.h>
 
 #include <OSL/genclosure.h>
 
@@ -494,50 +496,33 @@ LLOSLContextImpl::registerClosures() {
         { nullptr, 0, {} }
     };
 
-    auto void_pointer_type = llvm::Type::getInt8PtrTy(
-        d_llcontext);
-
     for (int i = 0; builtins[i].name; i++) {
+        auto  closure_name   = builtins[i].name;
+        auto  closure_id     = builtins[i].id;
+        auto& closure_params = builtins[i].params;
+
         d_shading_system->register_closure(
-            builtins[i].name,
-            builtins[i].id,
-            builtins[i].params,
+            closure_name,
+            closure_id,
+            closure_params,
             nullptr, nullptr);
 
-#if 0
-        llvm::Type *params_type = nullptr;
+        auto param_begin = &closure_params[0];
+        auto param_end   = std::find_if(
+            param_begin, &closure_params[MaxParams],
+            [](const auto& param) -> bool {
+                return !param.type;
+            });
 
-        d_shading_system->query_closure(
-            nullptr, &builtins[i].id, nullptr, &params_type);
-
-        auto bxdf_component_type = llvm::FunctionType::get(
-            float3_type,
-            std::vector<llvm::Type *>{
-                float3_type, float3_type,
-                llvm::PointerType::get(params_type, d_bxdf_address_space) },
-            false);
-
-        std::string name = "llosl_" + std::string(builtins[i].name);
-
-        d_bxdf_components.insert({
-            builtins[i].id,
-            llvm::Function::Create(
-                bxdf_component_type, llvm::GlobalValue::ExternalLinkage,
-                name, d_bxdf_module.get()) });
-#endif
+        auto closure = Closure::create(*this, closure_name, closure_id, { param_begin, param_end }, d_bxdf_module.get());
+        d_closures_by_name.insert({ closure->name(), closure->id() });
+        d_closures.insert({ closure->id(), std::move(closure) });
     }
 
     d_uber_bxdf = new UberBXDF(*this);
 }
 
 // OSL::RendererServices overrides:
-#if 0
-llvm::LLVMContext *
-LLOSLContextImpl::llvm_context() const {
-    return &d_llcontext;
-}
-#endif
-
 int
 LLOSLContextImpl::supports(OSL::string_view feature) const {
     if (feature == "LLOSL") {
@@ -548,6 +533,28 @@ LLOSLContextImpl::supports(OSL::string_view feature) const {
 }
 
 //
+const Closure *
+LLOSLContextImpl::getClosure(unsigned id) const {
+    auto it = d_closures.find(id);
+
+    if (it == d_closures.end()) {
+        return nullptr;
+    }
+
+    return it->second.get();
+}
+
+const Closure *
+LLOSLContextImpl::getClosure(llvm::StringRef name) const {
+    auto it = d_closures_by_name.find(name);
+
+    if (it == d_closures_by_name.end()) {
+        return nullptr;
+    }
+
+    return getClosure(it->second);
+}
+
 OSLErrorScope
 LLOSLContextImpl::enterOSLErrorScope() {
     return d_osl_error_handler.enter();
@@ -624,16 +631,6 @@ LLOSLContextImpl::getOrInsertBXDF(BXDF::EncodingView encoding, BXDFAST::NodeRef 
     auto tmp = d_uber_bxdf->insertBXDF(it->second);
 
     return { it->second, tmp.first, inserted || tmp.second };
-}
-
-llvm::Function *
-LLOSLContextImpl::getBXDFComponent(unsigned id) const {
-    auto it = d_bxdf_components.find(id);
-    if (it == d_bxdf_components.end()) {
-        return nullptr;
-    }
-
-    return it->second;
 }
 
 void

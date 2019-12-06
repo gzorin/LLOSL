@@ -1,6 +1,7 @@
 #include "LLOSLContextImpl.h"
 
 #include <llosl/BXDF.h>
+#include <llosl/Closure.h>
 #include <llosl/IR/BXDFAST.h>
 
 #include <llvm/IR/Function.h>
@@ -39,23 +40,11 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Void&) {}
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Component& node) {
-#if 0
-            int id = node.id;
-            llvm::Type *params_type = nullptr;
-            context.getShadingSystem().query_closure(
-                nullptr, &id, nullptr, &params_type);
-            scope_types.push_back(params_type);
-#endif
+            scope_types.push_back(context.getClosure(node.id)->params_type());
         }
 
         void operator()(BXDFAST::NodeRef, const BXDFAST::WeightedComponent& node) {
-#if 0
-            int id = node.id;
-            llvm::Type *params_type = nullptr;
-            context.getShadingSystem().query_closure(
-                nullptr, &id, nullptr, &params_type);
-            scope_types.push_back(params_type);
-#endif
+            scope_types.push_back(context.getClosure(node.id)->params_type());
         }
 
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Add&) {}
@@ -127,7 +116,7 @@ BXDF::BXDF(LLOSLContextImpl& context, EncodingView encoding, BXDFAST::NodeRef as
         void operator()(BXDFAST::NodeRef ref, const BXDFAST::Component& node) {
             auto args = builder.CreateStructGEP(nullptr, scope, scope_index++);
             result = builder.CreateCall(
-                context.getBXDFComponent(node.id),
+                context.getClosure(node.id)->function(),
                 std::vector<llvm::Value*>{ Wi, Wr, args });
 
             values[ref] = result;

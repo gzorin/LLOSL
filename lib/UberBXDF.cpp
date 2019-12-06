@@ -1,5 +1,6 @@
 #include "LLOSLContextImpl.h"
 
+#include <llosl/Closure.h>
 #include <llosl/UberBXDF.h>
 
 #include <llvm/IR/Constants.h>
@@ -22,9 +23,9 @@ UberBXDF::UberBXDF(LLOSLContextImpl& context)
 
     // Copy the BXDF component declarations:
     std::for_each(
-        context.bxdf_components().begin(), context.bxdf_components().end(),
-        [this, &ll_context](auto tmp) -> void {
-            auto [ id, function ] = tmp;
+        context.closures().begin(), context.closures().end(),
+        [this, &ll_context](auto& tmp) -> void {
+            auto function = tmp.second->function();
 
             d_bxdf_component_mapping[function] = llvm::Function::Create(
                 function->getFunctionType(),

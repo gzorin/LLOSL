@@ -15,6 +15,7 @@
 #include <oslexec_pvt.h>
 
 #include <map>
+#include <memory>
 #include <tuple>
 #include <unordered_map>
 
@@ -35,6 +36,7 @@ class StructType;
 namespace llosl {
 
 class BuilderImpl;
+class Closure;
 class Shader;
 
 class LLOSLContextImpl : private OSL::RendererServices {
@@ -53,6 +55,7 @@ public:
   const llvm::LLVMContext&         getLLContext() const { return d_llcontext; }
   llvm::LLVMContext&               getLLContext()       { return d_llcontext; }
 
+  //
   llvm::Type                      *getLLVMType(const OSL::TypeDesc&, bool);
   llvm::Constant                  *getLLVMDefaultConstant(const OSL::TypeDesc&, bool);
   std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *, bool);
@@ -62,25 +65,29 @@ public:
 
   llvm::StructType                *getLLVMStringType();
 
+  //
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
 
   const OSL::ShadingContext       *getShadingContext() const { return d_shading_context; }
   OSL::ShadingContext             *getShadingContext()       { return d_shading_context; }
 
+  //
+  using ClosureMapType = llvm::DenseMap<unsigned, std::unique_ptr<Closure> >;
+
+  ClosureMapType&                  closures()       { return d_closures; }
+  const ClosureMapType&            closures() const { return d_closures; }
+
+  const Closure                   *getClosure(unsigned) const;
+  const Closure                   *getClosure(llvm::StringRef) const;
+
+  //
   unsigned                         bxdf_address_space() const { return d_bxdf_address_space; }
 
   std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef, std::size_t);
 
   llvm::Module                    *bxdf_module()       { return d_bxdf_module.get(); }
   const llvm::Module              *bxdf_module() const { return d_bxdf_module.get(); }
-
-  using BXDFComponentMapType = std::map<unsigned, llvm::Function *>;
-
-  BXDFComponentMapType&            bxdf_components()       { return d_bxdf_components; }
-  const BXDFComponentMapType&      bxdf_components() const { return d_bxdf_components; }
-
-  llvm::Function                  *getBXDFComponent(unsigned id) const;
 
   UberBXDF                        *uber_bxdf() const   { return d_uber_bxdf; }
 
@@ -140,22 +147,20 @@ private:
   void registerClosures();
 
   // OSL::RendererServices overrides:
-#if 0
-  llvm::LLVMContext *llvm_context() const override;
-#endif
   int supports(OSL::string_view) const override;
 
   OSLErrorHandler d_osl_error_handler;
 
   llvm::LLVMContext& d_llcontext;
+  std::unique_ptr<llvm::Module> d_bxdf_module;
 
   llvm::StructType *d_string_type = nullptr;
 
-  std::unique_ptr<llvm::Module> d_bxdf_module;
-  BXDFComponentMapType d_bxdf_components;
-
   std::unique_ptr<OSL::ShadingSystem> d_shading_system;
   OSL::ShadingContext *d_shading_context;
+
+  ClosureMapType d_closures;
+  llvm::StringMap<unsigned> d_closures_by_name;
 
   BuilderImpl *d_builder = nullptr;
 
