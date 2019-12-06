@@ -1417,8 +1417,42 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         continue;
                     }
 
-                    // TODO
-                    continue;
+                    if (opname == Ops::u_mul) {
+                        assert((rtype0.is_closure() && (rtype1.is_triple() || rtype1.is_float())) ||
+                               (rtype1.is_closure() && (rtype0.is_triple() || rtype0.is_float())));
+
+                        std::optional<llvm::Value *> rvalue0, rvalue1;
+                        std::optional<bool> color;
+
+                        if (rtype0.is_closure()) {
+                            rvalue0 = irgen_context.getSymbolAddress(*opargs[1]);
+                            rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+                            color = rtype1.is_color();
+                        }
+                        else if (rtype1.is_closure()) {
+                            rvalue0 = irgen_context.getSymbolAddress(*opargs[2]);
+                            rvalue1 = irgen_context.getSymbolValue(*opargs[1]);
+                            color = rtype0.is_color();
+                        }
+
+                        assert(rvalue0 && rvalue1 && color);
+
+                        auto closure_value = *color
+                            ? irgen_context.callLibraryFunction(
+                                "osl_mul_closure_color", std::vector<llvm::Value *>{
+                                    renderer,
+                                    *rvalue0, *rvalue1
+                                })
+                            : irgen_context.callLibraryFunction(
+                                "osl_mul_closure_float", std::vector<llvm::Value *>{
+                                    renderer,
+                                    *rvalue0, *rvalue1
+                                });
+
+                        irgen_context.builder().CreateStore(closure_value, lvalue);
+
+                        continue;
+                    }
                 }
 
                 assert(!ltype.is_closure());
