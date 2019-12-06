@@ -801,7 +801,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
 
     d_context->addShader(this);
 
-    StartProcessingShaderGroup(shader_group);
+    OSL::pvt::RuntimeOptimizer rop(d_context->getShadingContext()->shadingsys(), shader_group, nullptr);
+    rop.run();
+
     d_module = std::make_unique<llvm::Module>("ShaderGroup", ll_context);
 
     // Order the 'layers' topologically:
@@ -866,8 +868,22 @@ Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
             return *shader;
         });
 
-    StopProcessingShaderGroup(shader_group);
-    d_module->dump();
+    // Satisfy the invariants of OSL::ShaderGroup's destructor:
+    for (int i = 0, n = shader_group.nlayers(); i < n; ++i) {
+        auto layer = shader_group.layer(i);
+
+        // We no longer needs ops and args -- create empty vectors and
+        // swap with the ones in the instance.
+        OpcodeVec emptyops;
+        layer->ops().swap (emptyops);
+        std::vector<int> emptyargs;
+        layer->args().swap (emptyargs);
+        if (layer->unused()) {
+            // If we'll never use the layer, we don't need the syms at all
+            SymbolVec nosyms;
+            std::swap (layer->symbols(), nosyms);
+        }
+    }
 }
 
 Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
@@ -1635,37 +1651,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(function.release()));
-
-    d_module->dump();
 }
 
 Shader::~Shader() {
-}
-
-void
-Shader::StartProcessingShaderGroup(OSL::ShaderGroup& shader_group) {
-    OSL::pvt::RuntimeOptimizer rop(d_context->getShadingContext()->shadingsys(), shader_group, nullptr);
-    rop.run();
-}
-
-void
-Shader::StopProcessingShaderGroup(OSL::ShaderGroup& shader_group) {
-    // Satisfy the invariants of OSL::ShaderGroup's destructor:
-    for (int i = 0, n = shader_group.nlayers(); i < n; ++i) {
-        auto layer = shader_group.layer(i);
-
-        // We no longer needs ops and args -- create empty vectors and
-        // swap with the ones in the instance.
-        OpcodeVec emptyops;
-        layer->ops().swap (emptyops);
-        std::vector<int> emptyargs;
-        layer->args().swap (emptyargs);
-        if (layer->unused()) {
-            // If we'll never use the layer, we don't need the syms at all
-            SymbolVec nosyms;
-            std::swap (layer->symbols(), nosyms);
-        }
-    }
 }
 
 void

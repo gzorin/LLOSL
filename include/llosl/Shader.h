@@ -88,9 +88,6 @@ private:
     Shader(LLOSLContextImpl&, OSL::ShaderGroup&);
     Shader(LLOSLContextImpl&, OSL::pvt::ShaderMaster&);
 
-    void StartProcessingShaderGroup(OSL::ShaderGroup&);
-    void StopProcessingShaderGroup(OSL::ShaderGroup&);
-
     LLOSLContextImpl *d_context;
 
     std::unique_ptr<llvm::Module> d_module;

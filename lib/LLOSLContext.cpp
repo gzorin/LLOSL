@@ -489,9 +489,6 @@ LLOSLContextImpl::registerClosures() {
         { nullptr, 0, {} }
     };
 
-    auto float3_type = llvm::VectorType::get(
-        llvm::Type::getFloatTy(d_llcontext), 3);
-
     auto void_pointer_type = llvm::Type::getInt8PtrTy(
         d_llcontext);
 
@@ -556,7 +553,7 @@ LLOSLContextImpl::getBuilder() {
     if (d_builder) {
         return llvm::Expected<Builder>(
             llvm::errorCodeToError(
-            make_error_code(LLOSLContext::Error::AlreadyBuilding)));
+                make_error_code(LLOSLContext::Error::AlreadyBuilding)));
     }
 
     return llvm::Expected<Builder>(Builder(*this));
@@ -575,6 +572,23 @@ LLOSLContextImpl::addShader(Shader *shader) {
 void
 LLOSLContextImpl::removeShader(Shader *shader) {
     d_shaders.remove(shader);
+}
+
+llvm::Expected<Shader *>
+LLOSLContextImpl::createShaderFromFile(llvm::StringRef filename) {
+    auto osl_error_scope = enterOSLErrorScope();
+
+    auto shader_master = d_shading_context->shadingsys().loadshader(OSL::string_view(filename.data(), filename.size()));
+
+    auto error = osl_error_scope.takeError();
+
+    if (error) {
+        return llvm::Expected<Shader *>(std::move(error));
+    }
+
+    assert(shader_master);
+
+    return llvm::Expected<Shader *>(getShaderFromShaderMaster(shader_master));
 }
 
 llvm::Expected<Shader *>
@@ -728,6 +742,11 @@ LLOSLContext::getLLVMDefaultConstant(const OSL::TypeDesc& t, bool packed) {
 std::pair<llvm::Constant *, const void *>
 LLOSLContext::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool packed) {
     return d_impl->getLLVMConstant(t, p, packed);
+}
+
+llvm::Expected<Shader *>
+LLOSLContext::createShaderFromFile(llvm::StringRef filename) {
+    return d_impl->createShaderFromFile(filename);
 }
 
 llvm::Expected<Builder>

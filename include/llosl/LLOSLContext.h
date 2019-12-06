@@ -3,6 +3,7 @@
 #define LLOSL_LLOSLCONTEXT_H
 
 #include <llvm/ADT/ilist.h>
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Error.h>
 
 #include <OSL/oslconfig.h>
@@ -53,9 +54,11 @@ public:
   llvm::Constant            *getLLVMDefaultConstant(const OSL::TypeDesc&, bool);
   std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *, bool);
 
+  llvm::Expected<Shader *>   createShaderFromFile(llvm::StringRef);
+
   llvm::Expected<Builder>    getBuilder();
 
-  UberBXDF                   *getUberBXDF() const;
+  UberBXDF                  *getUberBXDF() const;
 
 private:
 

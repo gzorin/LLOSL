@@ -65,13 +65,6 @@ public:
   const OSL::ShadingContext       *getShadingContext() const { return d_shading_context; }
   OSL::ShadingContext             *getShadingContext()       { return d_shading_context; }
 
-  OSLErrorScope                    enterOSLErrorScope();
-
-  llvm::Expected<Builder>          getBuilder();
-  void                             resetBuilder(BuilderImpl *);
-
-  llvm::Expected<Shader *>         getShaderFromShaderMaster(OSL::pvt::ShaderMaster::ref);
-
   unsigned                         bxdf_address_space() const { return d_bxdf_address_space; }
 
   std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef, std::size_t);
@@ -87,6 +80,17 @@ public:
   llvm::Function                  *getBXDFComponent(unsigned id) const;
 
   UberBXDF                        *uber_bxdf() const   { return d_uber_bxdf; }
+
+  //
+  OSLErrorScope                    enterOSLErrorScope();
+
+  llvm::Expected<Builder>          getBuilder();
+  void                             resetBuilder(BuilderImpl *);
+
+  //
+  llvm::Expected<Shader *>         createShaderFromFile(llvm::StringRef);
+
+  llvm::Expected<Shader *>         getShaderFromShaderMaster(OSL::pvt::ShaderMaster::ref);
 
   //
   using ShaderListType = LLOSLContext::ShaderListType;

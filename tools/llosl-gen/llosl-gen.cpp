@@ -44,39 +44,14 @@ main(int argc, char **argv) {
   std::unique_ptr<llvm::LLVMContext> llvm_context = std::make_unique<llvm::LLVMContext>();
   std::unique_ptr<llosl::LLOSLContext> llosl_context = std::make_unique<llosl::LLOSLContext>(*llvm_context);
 
-  auto builder_result = llosl_context->getBuilder();
-  if (!builder_result) {
-    llvm::errs() << llvm::toString(builder_result.takeError());
+  auto shader_result = llosl_context->createShaderFromFile(input_filename);
+
+  if (!shader_result) {
+    llvm::errs() << llvm::toString(shader_result.takeError());
     return 1;
   }
 
-  auto builder = std::move(*builder_result);
-
-  auto begin_result = builder.BeginShaderGroup("group", "surface");
-  if (begin_result) {
-    llvm::errs() << llvm::toString(std::move(begin_result));
-    return 1;
-  }
-
-  auto add_result = builder.AddNode("surface", input_filename, "layer");
-  if (add_result) {
-    llvm::errs() << llvm::toString(std::move(add_result));
-    return 1;
-  }
-
-  auto end_result = builder.EndShaderGroup();
-  if (end_result) {
-    llvm::errs() << llvm::toString(std::move(end_result));
-    return 1;
-  }
-
-  auto group_result = builder.Finalize();
-  if (!group_result) {
-    llvm::errs() << llvm::toString(group_result.takeError());
-    return 1;
-  }
-
-  auto group = std::move(*group_result);
+  auto shader = std::move(*shader_result);
 
   // Write it out:
   std::error_code error_code;
@@ -88,7 +63,7 @@ main(int argc, char **argv) {
     return 1;
   }
 
-  llvm::WriteBitcodeToFile(group->module(), output_file->os());
+  llvm::WriteBitcodeToFile(shader->module(), output_file->os());
   output_file->keep();
 
   return 0;
