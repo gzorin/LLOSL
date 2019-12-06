@@ -29,6 +29,7 @@ namespace llvm {
 class FunctionType;
 class LLVMContext;
 class Module;
+class StructType;
 } // End namespace llvm
 
 namespace llosl {
@@ -58,6 +59,8 @@ public:
 
   bool                             isTypePassedByReference(const OSL::TypeDesc&) const;
   llvm::Type                      *getLLVMTypeForArgument(const OSL::TypeDesc&, bool);
+
+  llvm::StructType                *getLLVMStringType();
 
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
@@ -146,7 +149,7 @@ private:
 
   llvm::LLVMContext& d_llcontext;
 
-  llvm::Type *d_string_type = nullptr;
+  llvm::StructType *d_string_type = nullptr;
 
   std::unique_ptr<llvm::Module> d_bxdf_module;
   BXDFComponentMapType d_bxdf_components;

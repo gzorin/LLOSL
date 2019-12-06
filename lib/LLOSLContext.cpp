@@ -114,16 +114,7 @@ LLOSLContextImpl::getLLVMType(const OSL::TypeDesc& t, bool packed) {
                 case OSL::TypeDesc::DOUBLE:
                     return llvm::Type::getDoubleTy(d_llcontext);
                 case OSL::TypeDesc::STRING:
-                    if (!d_string_type) {
-                        d_string_type = llvm::StructType::create(
-                            d_llcontext,
-                            std::vector<llvm::Type *>{
-                                llvm::Type::getInt32Ty(d_llcontext)
-                            },
-                            "OSL::String");
-                    }
-
-                    return d_string_type;
+                    return getLLVMStringType();
                 case OSL::TypeDesc::PTR:
                     return llvm::PointerType::get(
                         llvm::Type::getInt8Ty(d_llcontext), 0);
@@ -411,6 +402,20 @@ LLOSLContextImpl::getLLVMTypeForArgument(const OSL::TypeDesc& t, bool packed) {
     }
 
     return getLLVMType(t, packed);
+}
+
+llvm::StructType *
+LLOSLContextImpl::getLLVMStringType() {
+    if (!d_string_type) {
+        d_string_type = llvm::StructType::create(
+            d_llcontext,
+            std::vector<llvm::Type *>{
+                llvm::Type::getInt32Ty(d_llcontext)
+            },
+            "OSL::String");
+    }
+
+    return d_string_type;
 }
 
 void
