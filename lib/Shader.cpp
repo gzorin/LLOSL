@@ -180,6 +180,31 @@ getPromotionType(llvm::ArrayRef<OSL::TypeDesc> types) {
     return traits->basetype.getOSLTypeDesc(traits->aggregate);
 }
 
+using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
+
+const ShaderGlobalsIndex&
+getShaderGlobalsIndex() {
+    static ShaderGlobalsIndex index = {
+        { OSL::ustring("P"),              0 },
+        { OSL::ustring("I"),              4 },
+        { OSL::ustring("N"),              7 },
+        { OSL::ustring("Ng"),             8 },
+        { OSL::ustring("u"),              9 },
+        { OSL::ustring("v"),             12 },
+        { OSL::ustring("dPdu"),          15 },
+        { OSL::ustring("dPdv"),          16 },
+        { OSL::ustring("time"),          17 },
+        { OSL::ustring("dtime"),         18 },
+        { OSL::ustring("dPdtime"),       19 },
+        { OSL::ustring("renderer"),      20 },
+        { OSL::ustring("object2common"), 21 },
+        { OSL::ustring("shader2common"), 22 },
+        { OSL::ustring("Ci"),            23 },
+    };
+
+    return index;
+}
+
 }
 
 namespace llosl {
@@ -194,10 +219,7 @@ public:
     bool            isTypePassedByReference(const OSL::pvt::TypeSpec&) const;
     llvm::Type     *getLLVMTypeForArgument(const OSL::pvt::TypeSpec&);
 
-    using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
 
-    llvm::Type                *getShaderGlobalsType();
-    const ShaderGlobalsIndex&  getShaderGlobalsIndex();
 
     llvm::Constant *getLLVMDefaultConstant(const OSL::pvt::TypeSpec&);
 
@@ -275,10 +297,7 @@ private:
 
     llvm::StringMap<llvm::Function *> d_runtime_library;
 
-    llvm::PointerType *d_closure_type = nullptr;
-    llvm::Type *d_string_type = nullptr;
     std::unordered_map<int, llvm::Type *> d_struct_types;
-    llvm::Type *d_shaderglobals_type = nullptr;
 
     std::unique_ptr<llvm::Function> d_function;
     llvm::DenseMap<const Symbol *, llvm::Value *> d_symbol_addresses, d_symbol_values;
@@ -399,67 +418,6 @@ Shader::IRGenContext::getLLVMTypeForArgument(const OSL::pvt::TypeSpec& t) {
     }
 
     return d_context.getLLVMTypeForArgument(t.simpletype(), false);
-}
-
-llvm::Type *
-Shader::IRGenContext::getShaderGlobalsType() {
-    if (!d_shaderglobals_type) {
-        d_shaderglobals_type = llvm::StructType::create(
-            d_ll_context,
-            std::vector<llvm::Type *>{
-                getLLVMType(TypeDesc::TypePoint),       // P
-                getLLVMType(TypeDesc::TypePoint),       // dPdx
-                getLLVMType(TypeDesc::TypePoint),       // dPdy
-                getLLVMType(TypeDesc::TypePoint),       // dPdz
-                getLLVMType(TypeDesc::TypeVector),      // I
-                getLLVMType(TypeDesc::TypeVector),      // dIdx
-                getLLVMType(TypeDesc::TypeVector),      // dIdy
-                getLLVMType(TypeDesc::TypeNormal),      // N
-                getLLVMType(TypeDesc::TypeNormal),      // Ng
-                getLLVMType(TypeDesc::TypeFloat),       // u
-                getLLVMType(TypeDesc::TypeFloat),       // dudx
-                getLLVMType(TypeDesc::TypeFloat),       // dudy
-                getLLVMType(TypeDesc::TypeFloat),       // v
-                getLLVMType(TypeDesc::TypeFloat),       // dvdx
-                getLLVMType(TypeDesc::TypeFloat),       // dvdy
-                getLLVMType(TypeDesc::TypeVector),      // dPdu
-                getLLVMType(TypeDesc::TypeVector),      // dPdv
-                getLLVMType(TypeDesc::TypeFloat),       // time
-                getLLVMType(TypeDesc::TypeFloat),       // dtime
-                getLLVMType(TypeDesc::TypeVector),      // dPdtime
-                llvm::PointerType::get(
-                        llvm::Type::getInt8Ty(d_ll_context), 0),            // context
-                getLLVMType(TypeDesc::TypeMatrix),      // object2common
-                getLLVMType(TypeDesc::TypeMatrix),      // shader2common
-                d_context.getLLVMClosureType(),         // Ci
-            },
-            "OSL::ShaderGlobals");
-    }
-
-    return d_shaderglobals_type;
-}
-
-const Shader::IRGenContext::ShaderGlobalsIndex&
-Shader::IRGenContext::getShaderGlobalsIndex() {
-    static ShaderGlobalsIndex index = {
-        { OSL::ustring("P"),              0 },
-        { OSL::ustring("I"),              4 },
-        { OSL::ustring("N"),              7 },
-        { OSL::ustring("Ng"),             8 },
-        { OSL::ustring("u"),              9 },
-        { OSL::ustring("v"),             12 },
-        { OSL::ustring("dPdu"),          15 },
-        { OSL::ustring("dPdv"),          16 },
-        { OSL::ustring("time"),          17 },
-        { OSL::ustring("dtime"),         18 },
-        { OSL::ustring("dPdtime"),       19 },
-        { OSL::ustring("renderer"),      20 },
-        { OSL::ustring("object2common"), 21 },
-        { OSL::ustring("shader2common"), 22 },
-        { OSL::ustring("Ci"),            23 },
-    };
-
-    return index;
 }
 
 llvm::Constant *
@@ -951,7 +909,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     input_types.push_back(
         llvm::PointerType::get(
-            irgen_context.getShaderGlobalsType(), 0));
+            d_context->getShaderGlobalsType(), 0));
 
     std::for_each(
         symbols.begin(), symbols.end(),
@@ -997,7 +955,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     auto renderer = irgen_context.builder().CreateLoad(
         irgen_context.builder().CreateStructGEP(
             nullptr, shaderglobals,
-            irgen_context.getShaderGlobalsIndex().find(OSL::ustring("renderer"))->second));
+            getShaderGlobalsIndex().find(OSL::ustring("renderer"))->second));
     renderer->setName("llosl_renderer");
 
     unsigned output_index = 0;
@@ -1016,7 +974,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             switch (s->symtype()) {
                 case SymTypeGlobal: {
-                    const auto& index = irgen_context.getShaderGlobalsIndex();
+                    const auto& index = getShaderGlobalsIndex();
                     auto it = index.find(s->name());
                     assert(it != index.end());
 

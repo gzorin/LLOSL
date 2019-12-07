@@ -434,6 +434,54 @@ LLOSLContextImpl::getLLVMClosureType() {
     return d_closure_type;
 }
 
+llvm::StructType *
+LLOSLContextImpl::getShaderGlobalsType() {
+    static const std::vector<OSL::TypeDesc> types = {
+        OSL::TypeDesc::TypePoint,          // P
+        OSL::TypeDesc::TypePoint,          // dPdx
+        OSL::TypeDesc::TypePoint,          // dPdy
+        OSL::TypeDesc::TypePoint,          // dPdz
+        OSL::TypeDesc::TypeVector,         // I
+        OSL::TypeDesc::TypeVector,         // dIdx
+        OSL::TypeDesc::TypeVector,         // dIdy
+        OSL::TypeDesc::TypeNormal,         // N
+        OSL::TypeDesc::TypeNormal,         // Ng
+        OSL::TypeDesc::TypeFloat,          // u
+        OSL::TypeDesc::TypeFloat,          // dudx
+        OSL::TypeDesc::TypeFloat,          // dudy
+        OSL::TypeDesc::TypeFloat,          // v
+        OSL::TypeDesc::TypeFloat,          // dvdx
+        OSL::TypeDesc::TypeFloat,          // dvdy
+        OSL::TypeDesc::TypeVector,         // dPdu
+        OSL::TypeDesc::TypeVector,         // dPdv
+        OSL::TypeDesc::TypeFloat,          // time
+        OSL::TypeDesc::TypeFloat,          // dtime
+        OSL::TypeDesc::TypeVector,         // dPdtime
+        OSL::TypeDesc(OSL::TypeDesc::PTR), // context
+        OSL::TypeDesc::TypeMatrix,         // object2common
+        OSL::TypeDesc::TypeMatrix,         // shader2common
+    };
+
+    if (!d_shader_globals_type) {
+        std::vector<llvm::Type *> llvm_types;
+        llvm_types.reserve(types.size() + 1);
+
+        std::transform(
+            types.begin(), types.end(),
+            std::back_inserter(llvm_types),
+            [this](auto type) -> auto {
+                return getLLVMType(type, false);
+            });
+
+        llvm_types.push_back(getLLVMClosureType());
+
+        d_shader_globals_type = llvm::StructType::create(
+            d_llcontext, llvm_types, "OSL::ShaderGlobals");
+    }
+
+    return d_shader_globals_type;
+}
+
 llvm::Constant *
 LLOSLContextImpl::getLLVMClosureDefaultConstant() {
     return llvm::ConstantStruct::get(

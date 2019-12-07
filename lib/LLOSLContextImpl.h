@@ -72,6 +72,8 @@ public:
   llvm::PointerType               *getLLVMClosurePointerType();
   llvm::Constant                  *getLLVMClosurePointerDefaultConstant();
 
+  llvm::StructType                *getShaderGlobalsType();
+
   //
   const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
   OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
@@ -163,6 +165,7 @@ private:
 
   llvm::StructType *d_string_type = nullptr;
   llvm::StructType *d_closure_type = nullptr;
+  llvm::StructType *d_shader_globals_type = nullptr;
 
   std::unique_ptr<OSL::ShadingSystem> d_shading_system;
   OSL::ShadingContext *d_shading_context;
