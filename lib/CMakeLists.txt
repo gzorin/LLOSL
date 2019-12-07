@@ -4,10 +4,13 @@ add_library(LLOSL STATIC
   Builder.cpp
   BXDF.cpp
   Closure.cpp
+  Library.cpp
   LLOSLContext.cpp
   OSLErrorHandler.cpp
   Shader.cpp
   ShaderGroup.cpp
+  SymbolScope.cpp
+  TypeScope.cpp
   UberBXDF.cpp)
 
 target_compile_features(LLOSL PUBLIC cxx_std_17)

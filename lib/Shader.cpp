@@ -1,10 +1,15 @@
 #include "BuilderImpl.h"
+#include "Library.h"
 #include "LLOSLContextImpl.h"
+#include "StringUtil.h"
+#include "SymbolScope.h"
+#include "TypeScope.h"
 
 #include <llosl/Closure.h>
 #include <llosl/Shader.h>
 
 #include <llvm/ADT/APInt.h>
+#include <llvm/IR/Argument.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -16,7 +21,6 @@
 #include <llvm/Support/FormatVariadic.h>
 
 #include <osl_pvt.h>
-#include <oslcomp_pvt.h>
 #include <oslexec_pvt.h>
 #include <runtimeoptimize.h>
 
@@ -180,369 +184,12 @@ getPromotionType(llvm::ArrayRef<OSL::TypeDesc> types) {
     return traits->basetype.getOSLTypeDesc(traits->aggregate);
 }
 
-using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
-
-const ShaderGlobalsIndex&
-getShaderGlobalsIndex() {
-    static ShaderGlobalsIndex index = {
-        { OSL::ustring("P"),              0 },
-        { OSL::ustring("I"),              4 },
-        { OSL::ustring("N"),              7 },
-        { OSL::ustring("Ng"),             8 },
-        { OSL::ustring("u"),              9 },
-        { OSL::ustring("v"),             12 },
-        { OSL::ustring("dPdu"),          15 },
-        { OSL::ustring("dPdv"),          16 },
-        { OSL::ustring("time"),          17 },
-        { OSL::ustring("dtime"),         18 },
-        { OSL::ustring("dPdtime"),       19 },
-        { OSL::ustring("renderer"),      20 },
-        { OSL::ustring("object2common"), 21 },
-        { OSL::ustring("shader2common"), 22 },
-        { OSL::ustring("Ci"),            23 },
-    };
-
-    return index;
-}
-
 }
 
 namespace llosl {
 
-class Shader::IRGenContext {
-public:
-
-    IRGenContext(LLOSLContextImpl&, llvm::Module&);
-
-    llvm::Type     *getLLVMType(const OSL::pvt::TypeSpec&);
-
-    bool            isTypePassedByReference(const OSL::pvt::TypeSpec&) const;
-    llvm::Type     *getLLVMTypeForArgument(const OSL::pvt::TypeSpec&);
-
-
-
-    llvm::Constant *getLLVMDefaultConstant(const OSL::pvt::TypeSpec&);
-
-    std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::pvt::TypeSpec&, const void *);
-    llvm::Constant *getLLVMConstant(const Symbol&);
-
-    void beginFunction(llvm::StringRef, llvm::Type *, llvm::ArrayRef<llvm::Type *>);
-    std::unique_ptr<llvm::Function> endFunction();
-
-    llvm::Function *function() const {
-        assert(d_state == State::Function || d_state == State::Block);
-
-        return d_function.get();
-    }
-
-    void insertSymbolAddress(const Symbol&, llvm::Value *);
-    void insertSymbolValue(const Symbol&, llvm::Value *);
-    llvm::Value *getSymbolAddress(const Symbol&);
-
-    llvm::Value *getSymbolValue(llvm::IRBuilder<>&, const Symbol&);
-    llvm::Value *getSymbolConditionValue(llvm::IRBuilder<>&, const Symbol&);
-
-    llvm::Value *convertValue(llvm::IRBuilder<>&, const OSL::TypeDesc&, const OSL::TypeDesc&, llvm::Value *);
-
-    llvm::BasicBlock *createBlock(llvm::StringRef = llvm::StringRef());
-    void beginBlock(llvm::BasicBlock *);
-    void continueBlock(llvm::BasicBlock *);
-    void endBlock();
-
-    llvm::BasicBlock *block() const {
-        assert(d_state == State::Block);
-        assert(d_block);
-
-        return d_block;
-    }
-
-    llvm::IRBuilder<>& builder() const {
-        assert(d_builder);
-
-        return *d_builder;
-    }
-
-    llvm::Value *getSymbolValue(const Symbol& symbol) {
-        return getSymbolValue(builder(), symbol);
-    }
-
-    llvm::Value *getSymbolConditionValue(const Symbol& symbol) {
-        return getSymbolConditionValue(builder(), symbol);
-    }
-
-    llvm::Value *convertValue(const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
-        return convertValue(builder(), lhs_type, rhs_type, rhs_value);
-    }
-
-    llvm::Value *callLibraryFunction(llvm::StringRef, llvm::ArrayRef<llvm::Value *> = llvm::None);
-
-private:
-
-    enum class State {
-        Initial,
-        Function,
-        Block,
-        Final
-    };
-
-    void registerRuntimeLibrary();
-
-    llvm::Value *annotateClosureStorage(llvm::Value *);
-
-    LLOSLContextImpl &d_context;
-    llvm::LLVMContext& d_ll_context;
-    llvm::Module& d_module;
-
-    State d_state = State::Initial;
-
-    llvm::StringMap<llvm::Function *> d_runtime_library;
-
-    std::unordered_map<int, llvm::Type *> d_struct_types;
-
-    std::unique_ptr<llvm::Function> d_function;
-    llvm::DenseMap<const Symbol *, llvm::Value *> d_symbol_addresses, d_symbol_values;
-
-    llvm::BasicBlock *d_block = nullptr;
-    std::unique_ptr<llvm::IRBuilder<> > d_builder;
-
-    llvm::Function *d_closure_storage_annotation = nullptr;
-};
-
-Shader::IRGenContext::IRGenContext(LLOSLContextImpl& context, llvm::Module& module)
-    : d_context(context)
-    , d_ll_context(d_context.getLLContext())
-    , d_module(module) {
-    registerRuntimeLibrary();
-
-    d_closure_storage_annotation =
-        llvm::Function::Create(
-            llvm::FunctionType::get(
-                llvm::Type::getVoidTy(d_ll_context),
-                std::vector<llvm::Type *>{ llvm::PointerType::get(d_context.getLLVMClosureType(), 0) },
-                false),
-            llvm::GlobalValue::ExternalLinkage, "llosl_closure_storage_annotation", &d_module);
-}
-
 void
-Shader::IRGenContext::registerRuntimeLibrary() {
-    auto parseType = [this](const char *signature) -> std::tuple<OSL::pvt::TypeSpec, const char *> {
-        int advance = 0;
-        auto t = OSLCompilerImpl::type_from_code(signature, &advance);
-
-        return { t, signature + advance };
-    };
-
-    auto registerFunction = [this, parseType](const char *name, const char *signature) -> void {
-        auto [ t, next_signature ] = parseType(signature);
-        std::exchange(signature, next_signature);
-
-        auto return_type = getLLVMType(t);
-
-        std::vector<llvm::Type *> param_types;
-        bool is_var_arg = false;
-
-        while (*signature) {
-            auto [ t, next_signature ] = parseType(signature);
-            auto t_signature = std::exchange(signature, next_signature);
-
-            if (*t_signature == '*') {
-                assert(t.simpletype().basetype == TypeDesc::UNKNOWN);
-                is_var_arg = true;
-                continue;
-            }
-
-            param_types.push_back(getLLVMTypeForArgument(t));
-        }
-
-        auto function = llvm::Function::Create(
-            llvm::FunctionType::get(return_type, param_types, false),
-            llvm::GlobalValue::ExternalLinkage, name, &d_module);
-
-        d_runtime_library.insert({ name, function });
-    };
-
-    #define DECL(name,signature) registerFunction(#name, signature);
-    #include "builtindecl.h"
-    #undef DECL
-}
-
-llvm::Type *
-Shader::IRGenContext::getLLVMType(const OSL::pvt::TypeSpec& t) {
-    if (t.is_closure()) {
-        return d_context.getLLVMClosureType();
-    }
-
-    if (t.is_structure_based()) {
-        auto it = d_struct_types.find(t.structure());
-
-        if (it == d_struct_types.end()) {
-            auto struct_spec = t.structspec();
-            std::vector<llvm::Type *> member_types;
-            member_types.reserve(struct_spec->numfields());
-
-            for (int i = 0, n = struct_spec->numfields(); i < n; ++i) {
-                member_types.push_back(
-                    getLLVMType(struct_spec->field(i).type));
-            }
-
-            auto struct_type = llvm::StructType::get(d_ll_context, member_types);
-            it = d_struct_types.insert({ t.structure(), struct_type }).first;
-        }
-
-        assert(it != d_struct_types.end());
-
-        if (t.is_structure_array()) {
-            return llvm::ArrayType::get(
-                it->second, t.arraylength());
-        }
-
-        return it->second;
-    }
-
-    return d_context.getLLVMType(t.simpletype(), false);
-}
-
-bool
-Shader::IRGenContext::isTypePassedByReference(const OSL::pvt::TypeSpec& t) const {
-    if (t.is_closure() || t.is_structure_based()) {
-        return true;
-    }
-
-    return d_context.isTypePassedByReference(t.simpletype());
-}
-
-llvm::Type *
-Shader::IRGenContext::getLLVMTypeForArgument(const OSL::pvt::TypeSpec& t) {
-    if (t.is_closure() || t.is_structure_based()) {
-        return llvm::PointerType::get(getLLVMType(t), 0);
-    }
-
-    return d_context.getLLVMTypeForArgument(t.simpletype(), false);
-}
-
-llvm::Constant *
-Shader::IRGenContext::getLLVMDefaultConstant(const OSL::pvt::TypeSpec& t) {
-    auto llvm_type = getLLVMType(t);
-
-    if (t.is_closure()) {
-        return d_context.getLLVMClosureDefaultConstant();
-    }
-
-    if (t.is_structure_array()) {
-        auto struct_spec = t.structspec();
-        OSL::pvt::TypeSpec element_type(nullptr, t.structure());
-
-        std::vector<llvm::Constant *> elements(
-            t.arraylength(), getLLVMDefaultConstant(element_type));
-
-        return
-            llvm::ConstantArray::get(
-                llvm::cast<llvm::ArrayType>(llvm_type), elements);
-    }
-
-    if (t.is_structure_based()) {
-        auto struct_spec = t.structspec();
-
-        std::vector<llvm::Constant *> members(struct_spec->numfields(), nullptr);
-        int i = 0;
-
-        std::generate_n(
-            members.begin(), struct_spec->numfields(),
-            [this, struct_spec, &i]() -> llvm::Constant * {
-                return getLLVMDefaultConstant(struct_spec->field(i++).type);
-            });
-
-        return
-            llvm::ConstantStruct::get(
-                llvm::cast<llvm::StructType>(llvm_type),
-                members);
-    }
-
-    return d_context.getLLVMDefaultConstant(t.simpletype(), false);
-}
-
-std::pair<llvm::Constant *, const void *>
-Shader::IRGenContext::getLLVMConstant(const OSL::pvt::TypeSpec& t, const void *p) {
-    auto llvm_type = getLLVMType(t);
-
-    if (t.is_closure()) {
-        assert(false);
-        return { nullptr, p };
-    }
-
-    if (t.is_structure_array()) {
-        auto struct_spec = t.structspec();
-        OSL::pvt::TypeSpec element_type(nullptr, t.structure());
-
-        std::vector<llvm::Constant *> elements(t.arraylength(), nullptr);
-
-        std::generate_n(
-            elements.begin(), t.arraylength(),
-            [this, &p, &element_type]() -> llvm::Constant * {
-                auto [ element, next_p ] = getLLVMConstant(element_type, p);
-                p = next_p;
-                return element;
-            });
-
-        return {
-            llvm::ConstantArray::get(
-                llvm::cast<llvm::ArrayType>(llvm_type), elements),
-            p
-        };
-    }
-
-    if (t.is_structure_based()) {
-        auto struct_spec = t.structspec();
-
-        std::vector<llvm::Constant *> members(struct_spec->numfields(), nullptr);
-        int i = 0;
-
-        std::generate_n(
-            members.begin(), struct_spec->numfields(),
-            [this, &p, struct_spec, &i]() -> llvm::Constant * {
-                auto [ member, next_p ] = getLLVMConstant(struct_spec->field(i++).type, p);
-                p = next_p;
-                return member;
-            });
-
-        return {
-            llvm::ConstantStruct::get(
-                llvm::cast<llvm::StructType>(llvm_type),
-                members),
-            p
-        };
-    }
-
-    return d_context.getLLVMConstant(t.simpletype(), p, false);
-}
-
-llvm::Constant *
-Shader::IRGenContext::getLLVMConstant(const Symbol& s) {
-    if (s.data()) {
-        return getLLVMConstant(s.typespec(), s.data()).first;
-    }
-
-    return getLLVMDefaultConstant(s.typespec());
-}
-
-void
-Shader::IRGenContext::beginFunction(
-    llvm::StringRef name, llvm::Type *return_type, llvm::ArrayRef<llvm::Type *> param_types) {
-    assert(d_state == State::Initial);
-
-    d_function.reset(llvm::Function::Create(
-        llvm::FunctionType::get(
-            return_type, param_types,
-            false),
-        llvm::GlobalValue::ExternalLinkage, name, &d_module));
-
-    d_state = State::Function;
-}
-
-std::unique_ptr<llvm::Function>
-Shader::IRGenContext::endFunction() {
-    assert(d_state == State::Function);
-
+SortBasicBlocksTopologically(llvm::Function *function) {
     // Order the blocks topologically:
     struct Frame {
         llvm::BasicBlock *block = nullptr;
@@ -559,7 +206,7 @@ Shader::IRGenContext::endFunction() {
     llvm::DenseMap<llvm::BasicBlock *, Color> color;
 
     std::for_each(
-        d_function->begin(), d_function->end(),
+        function->begin(), function->end(),
         [&blocks, &color](auto& block) -> void {
             blocks.push_back(&block);
             color[&block] = Color::White;
@@ -597,7 +244,7 @@ Shader::IRGenContext::endFunction() {
                 color[block] = Color::Black;
 
                 if (!insertion_point) {
-                    block->moveBefore(&d_function->front());
+                    block->moveBefore(&function->front());
                 }
                 else {
                     block->moveAfter(insertion_point);
@@ -607,58 +254,22 @@ Shader::IRGenContext::endFunction() {
             }
         }
     }
-
-    d_state = State::Final;
-
-    return std::move(d_function);
-}
-
-void
-Shader::IRGenContext::insertSymbolAddress(const Symbol& symbol, llvm::Value *value) {
-    auto [ it, inserted ] = d_symbol_addresses.insert({ &symbol, value });
-
-    if (inserted && symbol.typespec().is_closure()) {
-        annotateClosureStorage(value);
-    }
-}
-
-void
-Shader::IRGenContext::insertSymbolValue(const Symbol& symbol, llvm::Value *value) {
-    d_symbol_values.insert({ &symbol, value });
 }
 
 llvm::Value *
-Shader::IRGenContext::getSymbolAddress(const Symbol& symbol) {
-    auto it = d_symbol_addresses.find(&symbol);
-    assert(it != d_symbol_addresses.end());
-
-    return it->second;
+CreateCastToCondition(llvm::IRBuilder<>& builder, llvm::Value *value) {
+    return builder.CreateTrunc(value, builder.getInt1Ty());
 }
 
 llvm::Value *
-Shader::IRGenContext::getSymbolValue(llvm::IRBuilder<>& builder, const Symbol& symbol) {
-    auto it = d_symbol_values.find(&symbol);
-    if (it != d_symbol_values.end()) {
-        return it->second;
-    }
-
-    return builder.CreateLoad(getSymbolAddress(symbol));
-}
-
-llvm::Value *
-Shader::IRGenContext::getSymbolConditionValue(llvm::IRBuilder<>& builder, const Symbol& symbol) {
-    return builder.CreateTrunc(
-        getSymbolValue(builder, symbol),
-        llvm::Type::getInt1Ty(d_ll_context));
-}
-
-llvm::Value *
-Shader::IRGenContext::convertValue(llvm::IRBuilder<>& builder, const OSL::TypeDesc& lhs_type, const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value) {
+CreateCast(TypeScope& type_scope, llvm::IRBuilder<>& builder,
+           const OSL::TypeDesc& rhs_type, llvm::Value *rhs_value,
+           const OSL::TypeDesc& lhs_type) {
     const auto& lhs_traits = OSLScalarTypeTraits::get(lhs_type);
     const auto& rhs_traits = OSLScalarTypeTraits::get(rhs_type);
 
-    auto lhs_llvm_basetype = d_context.getLLVMType(
-        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype), false);
+    auto lhs_llvm_basetype = type_scope.get(
+        OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype));
 
     // int-to-int
     if (lhs_traits.type == OSLScalarTypeTraits::Integer && rhs_traits.type == OSLScalarTypeTraits::Integer) {
@@ -706,10 +317,9 @@ Shader::IRGenContext::convertValue(llvm::IRBuilder<>& builder, const OSL::TypeDe
     auto lhs_aggregate = lhs_type.aggregate;
     auto rhs_aggregate = rhs_type.aggregate;
 
-    auto lhs_llvm_aggtype = d_context.getLLVMType(
+    auto lhs_llvm_aggtype = type_scope.get(
         OSL::TypeDesc((OSL::TypeDesc::BASETYPE)lhs_type.basetype,
-                      (OSL::TypeDesc::AGGREGATE)lhs_type.aggregate),
-        false);
+                      (OSL::TypeDesc::AGGREGATE)lhs_type.aggregate));
 
     if (lhs_aggregate > 1 && rhs_aggregate == 1) {
         if (lhs_aggregate >= 2 && lhs_aggregate <= 4) {
@@ -724,59 +334,6 @@ Shader::IRGenContext::convertValue(llvm::IRBuilder<>& builder, const OSL::TypeDe
     }
 
     return rhs_value;
-}
-
-llvm::BasicBlock *
-Shader::IRGenContext::createBlock(llvm::StringRef name) {
-    assert(d_state == State::Function || d_state == State::Block);
-
-    return llvm::BasicBlock::Create(d_ll_context, name, d_function.get());
-}
-
-void
-Shader::IRGenContext::beginBlock(llvm::BasicBlock *block) {
-    assert(d_state == State::Function);
-
-    d_block = block;
-    d_builder.reset(new llvm::IRBuilder<>(d_block));
-
-    d_state = State::Block;
-}
-
-void
-Shader::IRGenContext::continueBlock(llvm::BasicBlock *block) {
-    assert(d_state == State::Block);
-
-    d_block = block;
-    d_builder->SetInsertPoint(d_block);
-}
-
-void
-Shader::IRGenContext::endBlock() {
-    assert(d_state == State::Block);
-
-    d_block = nullptr;
-    d_builder.reset();
-
-    d_state = State::Function;
-}
-
-llvm::Value *
-Shader::IRGenContext::annotateClosureStorage(llvm::Value *value) {
-    assert(value->getType() == llvm::PointerType::get(d_context.getLLVMClosureType(), 0));
-    assert(d_closure_storage_annotation);
-
-    return builder().CreateCall(
-        d_closure_storage_annotation,
-        std::vector<llvm::Value *>{ value });
-}
-
-llvm::Value *
-Shader::IRGenContext::callLibraryFunction(llvm::StringRef name, llvm::ArrayRef<llvm::Value *> args) {
-    auto it = d_runtime_library.find(name);
-    assert(it != d_runtime_library.end());
-
-    return builder().CreateCall(it->second, args);
 }
 
 Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
@@ -876,183 +433,120 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     d_context->addShader(this);
 
+    TypeScope type_scope(context);
+
+    //
     d_module = std::make_unique<llvm::Module>(shader_master.shadername(), ll_context);
 
-    IRGenContext irgen_context(*d_context, *d_module);
+    //
+    Library runtime_library(context, type_scope, *d_module);
+
+    runtime_library.declare("llosl_closure_output_annotation", "xC");
+    runtime_library.declare("llosl_closure_storage_annotation", "xC");
+
+    #define DECL(name,signature) runtime_library.declare(#name, signature);
+    #include "builtindecl.h"
+    #undef DECL
+
+    //
+    llvm::IRBuilder<> builder(ll_context);
+
+    //
+    std::vector<llvm::Type *> param_types = { llvm::PointerType::get(d_context->getShaderGlobalsType(), 0) };
 
     const auto& symbols = shader_master.symbols();
-
-    // Count the number of inputs and outputs:
-    unsigned input_count = 0, output_count = 0;
-
     std::for_each(
         symbols.begin(), symbols.end(),
-        [&input_count, &output_count](const auto& symbol) -> void {
+        [&type_scope, &param_types](const auto& symbol) -> void {
             auto s = symbol.dealias();
+            auto st = s->symtype();
 
-            switch (s->symtype()) {
-                case SymTypeParam:
-                    ++input_count;
-                    return;
-                case SymTypeOutputParam:
-                    ++output_count;
-                    return;
-                default:
-                    break;
-            }
-        });
-
-    // Create llvm::StructTypes for inputs and outputs:
-    std::vector<llvm::Type *> input_types, return_types;
-    input_types.reserve(input_count + 1);
-    return_types.reserve(output_count);
-
-    input_types.push_back(
-        llvm::PointerType::get(
-            d_context->getShaderGlobalsType(), 0));
-
-    std::for_each(
-        symbols.begin(), symbols.end(),
-        [&irgen_context, &input_types, &return_types](const auto& symbol) -> void {
-            auto s = symbol.dealias();
-
-            switch (s->symtype()) {
-                case SymTypeParam: {
-                    input_types.push_back(irgen_context.getLLVMTypeForArgument(s->typespec()));
-                } return;
-                case SymTypeOutputParam: {
-                    return_types.push_back(irgen_context.getLLVMType(s->typespec()));
-                } return;
-                default:
-                    break;
-            }
-        });
-
-    llvm::Type *return_type =
-        (output_count > 0)
-        ? llvm::StructType::get(ll_context, return_types)
-        : llvm::Type::getVoidTy(ll_context);
-
-    irgen_context.beginFunction(
-        shader_master.shadername(), return_type, input_types);
-
-    // Create the 'entry' block:
-    auto entry_block = irgen_context.createBlock("entry");
-    irgen_context.beginBlock(entry_block);
-
-    // Allocate space for the result value:
-    llvm::Value *result =
-        (output_count > 0)
-        ? irgen_context.builder().CreateAlloca(return_type, nullptr, "result")
-        : nullptr;
-
-    // Initialize symbols:
-    auto input_it = irgen_context.function()->arg_begin();
-
-    auto shaderglobals = input_it++;
-    shaderglobals->setName("shaderglobals");
-
-    auto renderer = irgen_context.builder().CreateLoad(
-        irgen_context.builder().CreateStructGEP(
-            nullptr, shaderglobals,
-            getShaderGlobalsIndex().find(OSL::ustring("renderer"))->second));
-    renderer->setName("llosl_renderer");
-
-    unsigned output_index = 0;
-
-    std::for_each(
-        symbols.begin(), symbols.end(),
-        [&irgen_context,
-         shaderglobals, &input_it, result, &output_index](const auto& symbol) -> void {
-            auto s = symbol.dealias();
-            if (!s->everused()) {
+            if (st != SymTypeParam && st != SymTypeOutputParam) {
                 return;
             }
 
-            auto name = s->name().string();
-            const auto& t = s->typespec();
+            const auto&t = s->typespec();
+            llvm::Type *type = nullptr;
 
-            switch (s->symtype()) {
-                case SymTypeGlobal: {
-                    const auto& index = getShaderGlobalsIndex();
-                    auto it = index.find(s->name());
-                    assert(it != index.end());
-
-                    auto address = irgen_context.builder().CreateStructGEP(nullptr, shaderglobals, it->second);
-
-                    if (s->everwritten() ||
-                        irgen_context.isTypePassedByReference(t)) {
-                        address->setName(name);
-                        irgen_context.insertSymbolAddress(*s, address);
-                    }
-                    else {
-                        auto value = irgen_context.builder().CreateLoad(address, name);
-                        irgen_context.insertSymbolValue(*s, value);
-                    }
-                } break;
-                case SymTypeParam: {
-                    auto value = input_it++;
-                    value->setName(name);
-
-                    // Some inputs are passed by reference:
-                    if (irgen_context.isTypePassedByReference(t)) {
-                        irgen_context.insertSymbolAddress(*s, value);
-                    }
-                    else {
-                        irgen_context.insertSymbolValue(*s, value);
-                    }
-                } break;
-                case SymTypeOutputParam: {
-                    auto address = irgen_context.builder().CreateStructGEP(nullptr, result, output_index++, name);
-                    irgen_context.insertSymbolAddress(*s, address);
-                } break;
-                case SymTypeLocal:
-                case SymTypeTemp: {
-                    // Locals need both an address and an initial value:
-                    auto address = irgen_context.builder().CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
-                    auto value = irgen_context.getLLVMConstant(*s);
-                    assert(value);
-
-                    irgen_context.builder().CreateStore(value, address);
-                    irgen_context.insertSymbolAddress(*s, address);
-                } break;
-                case SymTypeConst: {
-                    // Constants are inlined:
-                    auto value = irgen_context.getLLVMConstant(*s);
-                    assert(value);
-
-                    // Some constants will be passed on by reference:
-                    if (irgen_context.isTypePassedByReference(t)) {
-                        auto address = irgen_context.builder().CreateAlloca(irgen_context.getLLVMType(s->typespec()), nullptr, name);
-                        irgen_context.builder().CreateStore(value, address);
-                        irgen_context.insertSymbolAddress(*s, address);
-                    }
-                    else {
-                        irgen_context.insertSymbolValue(*s, value);
-                    }
-                } break;
-                default:
-                    break;
+            if (st == SymTypeParam) {
+                type = type_scope.getForArgument(t);
             }
+            else if (st == SymTypeOutputParam) {
+                if (type_scope.isPassedByReference(t)) {
+                    type = type_scope.getForArgument(t);
+                }
+                else {
+                    type = llvm::PointerType::get(
+                        type_scope.get(t), 0);
+                }
+            }
+
+            param_types.push_back(type);
         });
 
-    auto body_block = irgen_context.createBlock();
-    auto branch = irgen_context.builder().CreateBr(body_block);
-    irgen_context.endBlock();
+    auto function = llvm::Function::Create(
+        llvm::FunctionType::get(
+            llvm::Type::getVoidTy(ll_context),
+            param_types,
+            false),
+        llvm::GlobalValue::ExternalLinkage, shader_master.shadername(), d_module.get());
 
-    // Create the 'exit' block:
-    auto exit_block = irgen_context.createBlock("exit");
-    irgen_context.beginBlock(exit_block);
+    auto shader_globals = function->arg_begin();
+    shader_globals->setName("shaderglobals");
 
-    if (output_count > 0) {
-        irgen_context.builder().CreateRet(
-            irgen_context.builder().CreateLoad(result));
-    }
-    else {
-        irgen_context.builder().CreateRetVoid();
-    }
+    std::accumulate(
+        symbols.begin(), symbols.end(),
+        function->arg_begin() + 1,
+        [](auto it_arg, const auto& symbol) -> auto {
+            auto s = symbol.dealias();
+            auto st = s->symtype();
 
-    irgen_context.endBlock();
+            if (st == SymTypeParam || st == SymTypeOutputParam) {
+                it_arg++->setName(makeLLVMStringRef(s->name()));
+            }
+
+            return it_arg;
+        });
+
+    SymbolScope symbol_scope(context, type_scope, runtime_library, builder,
+                             function, shader_globals);
+
+    Library::CallingContext runtime_library_context(runtime_library, symbol_scope, builder);
+
+    // Create the 'entry' block:
+    auto entry_block = llvm::BasicBlock::Create(ll_context, "entry", function);
+    builder.SetInsertPoint(entry_block);
+
+    auto renderer = builder.CreateLoad(
+        builder.CreateStructGEP(
+            nullptr, shader_globals,
+            getShaderGlobalsIndex().find(OSL::ustring("renderer"))->second));
+    renderer->setName("renderer");
+
+    std::for_each(
+        symbols.begin(), symbols.end(),
+        [&symbol_scope](const auto& s) -> void {
+            symbol_scope.add(&s);
+        });
+
+    // Create the 'body' block, and branch to it:
+    auto body_block = llvm::BasicBlock::Create(ll_context, "body", function);
+    builder.CreateBr(body_block);
+
+    builder.ClearInsertionPoint();
+
+    // Create the 'exit' block, and populate it with a return instruction:
+    auto exit_block = llvm::BasicBlock::Create(ll_context, "exit", function);
+    builder.SetInsertPoint(exit_block);
+    builder.CreateRetVoid();
+    builder.ClearInsertionPoint();
+
+    //
+    auto osl_allocate_closure_component          = runtime_library_context["osl_allocate_closure_component"];
+    auto osl_allocate_weighted_closure_component = runtime_library_context["osl_allocate_weighted_closure_component"];
+    auto osl_add_closure_closure                 = runtime_library_context["osl_add_closure_closure"];
+    auto osl_mul_closure_color                   = runtime_library_context["osl_mul_closure_color"];
+    auto osl_mul_closure_float                   = runtime_library_context["osl_mul_closure_float"];
 
     //
     struct Frame {
@@ -1090,7 +584,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
         }
 
-        irgen_context.beginBlock(block);
+        builder.SetInsertPoint(block);
 
         while (opcode_index < opcode_end) {
             const auto& opcode = ops[opcode_index++];
@@ -1121,9 +615,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto it = function_id.insert({ function_name, 0 }).first;
                 function_name = llvm::formatv("call.{0}.{1}", function_name, it->second++);
 
-                auto function_block = irgen_context.createBlock();
+                auto function_block = llvm::BasicBlock::Create(ll_context, "", function);
 
-                block = irgen_context.createBlock();
+                block = llvm::BasicBlock::Create(ll_context, "", function);
                 block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
 
                 auto function_opcode_index = std::exchange(opcode_index, opcode.jump(0));
@@ -1133,8 +627,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     function_name, 0, function_block, block, nullptr, nullptr, function_opcode_index, function_opcode_end
                 });
 
-                irgen_context.builder().CreateBr(function_block);
-                irgen_context.continueBlock(block);
+                builder.CreateBr(function_block);
+                builder.SetInsertPoint(function_block);
 
                 continue;
             }
@@ -1148,12 +642,12 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
                 llvm::BasicBlock *then_block = nullptr, *else_block = nullptr;
 
-                block = irgen_context.createBlock();
+                block = llvm::BasicBlock::Create(ll_context, "", function);
                 block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
 
                 // 'then' clause:
                 if (opcode.jump(0) >= opcode_index) {
-                    then_block = irgen_context.createBlock();
+                    then_block = llvm::BasicBlock::Create(ll_context, "", function);
 
                     auto begin = std::exchange(opcode_index, opcode.jump(0));
                     auto end = opcode_index;
@@ -1165,7 +659,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
                 // 'else' clause:
                 if (opcode.jump(1) > opcode.jump(0)) {
-                    else_block = irgen_context.createBlock();
+                    else_block = llvm::BasicBlock::Create(ll_context, "", function);
 
                     auto begin = std::exchange(opcode_index, opcode.jump(1));
                     auto end = opcode_index;
@@ -1175,9 +669,10 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     });
                 }
 
-                auto value = irgen_context.getSymbolConditionValue(*opargs[0]);
-                irgen_context.builder().CreateCondBr(value, then_block, else_block ? else_block : block);
-                irgen_context.continueBlock(block);
+                builder.CreateCondBr(
+                    CreateCastToCondition(builder, symbol_scope.getValueOrDereference(opargs[0])),
+                    then_block, else_block ? else_block : block);
+                builder.SetInsertPoint(block);
             }
 
             if (opname == Ops::u_for || opname == Ops::u_while || opname == Ops::u_dowhile) {
@@ -1196,22 +691,22 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto this_flow_id = flow_id++;
 
                 // pred_block; always needed:
-                auto pred_block = irgen_context.createBlock();
+                auto pred_block = llvm::BasicBlock::Create(ll_context, "", function);
 
                 // cond_block: jump(0) to jump(1)
-                auto cond_block = (opcode.jump(1) > opcode.jump(0)) ? irgen_context.createBlock()
+                auto cond_block = (opcode.jump(1) > opcode.jump(0)) ? llvm::BasicBlock::Create(ll_context, "", function)
                                                                     : pred_block;
 
                 // body_block: jump(1) to jump(2)
-                llvm::BasicBlock *body_block = (opcode.jump(2) > opcode.jump(1)) ? irgen_context.createBlock()
+                llvm::BasicBlock *body_block = (opcode.jump(2) > opcode.jump(1)) ? llvm::BasicBlock::Create(ll_context, "", function)
                                                                                  : nullptr;
 
                 // ind_block: jump(2) to jump(3)
-                llvm::BasicBlock *ind_block = (opcode.jump(3) > opcode.jump(2)) ? irgen_context.createBlock()
+                llvm::BasicBlock *ind_block = (opcode.jump(3) > opcode.jump(2)) ? llvm::BasicBlock::Create(ll_context, "", function)
                                                                                 : nullptr;
 
                 // next_block: jump(2) or jump(3) to opcode_end
-                llvm::BasicBlock *exit_block = irgen_context.createBlock();
+                llvm::BasicBlock *exit_block = llvm::BasicBlock::Create(ll_context, "", function);
 
                 //
                 llvm::BasicBlock *iter_entry = nullptr,
@@ -1237,13 +732,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 {   pred_block->setName(loop_name + ".pred");
 
                     assert(pred_exit);
-                    auto& builder = irgen_context.builder();
 
                     llvm::IRBuilder<>::InsertPointGuard guard(builder);
                     builder.SetInsertPoint(pred_block);
 
-                    auto value = irgen_context.getSymbolConditionValue(*opargs[0]);
-                    builder.CreateCondBr(value, pred_exit, exit_block);
+                    builder.CreateCondBr(
+                        CreateCastToCondition(builder, symbol_scope.getValueOrDereference(opargs[0])),
+                        pred_exit, exit_block);
                 }
 
                 // populate cond_block:
@@ -1285,11 +780,11 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             if (opname == Ops::u_continue) {
                 assert(continue_block);
 
-                block = irgen_context.createBlock();
+                block = llvm::BasicBlock::Create(ll_context, "", function);
                 block->setName(llvm::formatv("{0}.{1}", name, block_id++).str());
 
-                irgen_context.builder().CreateBr(continue_block);
-                irgen_context.continueBlock(block);
+                builder.CreateBr(continue_block);
+                builder.SetInsertPoint(block);
 
                 continue;
             }
@@ -1297,10 +792,10 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             if (opname == Ops::u_break) {
                 assert(break_block);
 
-                block = irgen_context.createBlock();
+                block = llvm::BasicBlock::Create(ll_context, "", function);
 
-                irgen_context.builder().CreateBr(break_block);
-                irgen_context.continueBlock(block);
+                builder.CreateBr(break_block);
+                builder.SetInsertPoint(block);
 
                 continue;
             }
@@ -1309,14 +804,14 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& ltype = opargs[0]->typespec();
                 const auto& rtype = opargs[1]->typespec();
 
-                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
-                auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto rvalue = symbol_scope.getValueOrDereference(opargs[1]);
 
                 if (ltype.is_closure() || ltype.is_matrix() || ltype.is_structure() || ltype.is_string()) {
                     if (ltype.is_closure() && rtype.is_int()) {
                         assert(llvm::isa<llvm::ConstantInt>(rvalue));
                         assert(llvm::cast<llvm::ConstantInt>(rvalue)->isZero());
-                        irgen_context.builder().CreateStore(
+                        builder.CreateStore(
                             d_context->getLLVMClosureDefaultConstant(),
                             lvalue);
                         continue;
@@ -1335,16 +830,16 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         assert(rtype.is_string());
                     }
 
-                    irgen_context.builder().CreateStore(rvalue, lvalue);
+                    builder.CreateStore(rvalue, lvalue);
 
                     continue;
                 }
 
-                rvalue = irgen_context.convertValue(ltype.simpletype(),
-                                                    rtype.simpletype(),
-                                                    rvalue);
+                rvalue = CreateCast(type_scope, builder,
+                                    rtype.simpletype(), rvalue,
+                                    ltype.simpletype());
 
-                irgen_context.builder().CreateStore(rvalue, lvalue);
+                builder.CreateStore(rvalue, lvalue);
 
                 continue;
             }
@@ -1354,23 +849,15 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
 
-                auto lvalue  = irgen_context.getSymbolAddress(*opargs[0]);
+                auto lvalue  = symbol_scope.getReference(opargs[0]);
 
                 // Closure arithmetic:
                 if (ltype.is_closure()) {
                     if (opname == Ops::u_add) {
                         assert(rtype0.is_closure() && rtype1.is_closure());
 
-                        auto rvalue0 = irgen_context.getSymbolAddress(*opargs[1]);
-                        auto rvalue1 = irgen_context.getSymbolAddress(*opargs[2]);
-
-                        auto closure_value = irgen_context.callLibraryFunction(
-                            "osl_add_closure_closure", std::vector<llvm::Value *>{
-                                renderer,
-                                rvalue0, rvalue1
-                            });
-
-                        irgen_context.builder().CreateStore(closure_value, lvalue);
+                        auto closure_value = osl_add_closure_closure(renderer, opargs[1], opargs[2]);
+                        builder.CreateStore(closure_value, lvalue);
 
                         continue;
                     }
@@ -1379,35 +866,27 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         assert((rtype0.is_closure() && (rtype1.is_triple() || rtype1.is_float())) ||
                                (rtype1.is_closure() && (rtype0.is_triple() || rtype0.is_float())));
 
-                        std::optional<llvm::Value *> rvalue0, rvalue1;
+                        std::optional<const Symbol *> arg0, arg1;
                         std::optional<bool> color;
 
                         if (rtype0.is_closure()) {
-                            rvalue0 = irgen_context.getSymbolAddress(*opargs[1]);
-                            rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+                            arg0 = opargs[1];
+                            arg1 = opargs[2];
                             color = rtype1.is_color();
                         }
                         else if (rtype1.is_closure()) {
-                            rvalue0 = irgen_context.getSymbolAddress(*opargs[2]);
-                            rvalue1 = irgen_context.getSymbolValue(*opargs[1]);
+                            arg0 = opargs[2];
+                            arg1 = opargs[1];
                             color = rtype0.is_color();
                         }
 
-                        assert(rvalue0 && rvalue1 && color);
+                        assert(arg0 && arg1 && color);
 
                         auto closure_value = *color
-                            ? irgen_context.callLibraryFunction(
-                                "osl_mul_closure_color", std::vector<llvm::Value *>{
-                                    renderer,
-                                    *rvalue0, *rvalue1
-                                })
-                            : irgen_context.callLibraryFunction(
-                                "osl_mul_closure_float", std::vector<llvm::Value *>{
-                                    renderer,
-                                    *rvalue0, *rvalue1
-                                });
+                            ? osl_mul_closure_color(renderer, *arg0, *arg1)
+                            : osl_mul_closure_float(renderer, *arg0, *arg1);
 
-                        irgen_context.builder().CreateStore(closure_value, lvalue);
+                        builder.CreateStore(closure_value, lvalue);
 
                         continue;
                     }
@@ -1416,43 +895,43 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 assert(!ltype.is_closure());
 
                 // Scalar and vector arithmetic:
-                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
-                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+                auto rvalue0 = symbol_scope.getValueOrDereference(opargs[1]);
+                auto rvalue1 = symbol_scope.getValueOrDereference(opargs[2]);
 
-                rvalue0 = irgen_context.convertValue(ltype.simpletype(),
-                                                     rtype0.simpletype(),
-                                                     rvalue0);
-                rvalue1 = irgen_context.convertValue(ltype.simpletype(),
-                                                     rtype1.simpletype(),
-                                                     rvalue1);
+                rvalue0 = CreateCast(type_scope, builder,
+                                     rtype0.simpletype(), rvalue0,
+                                     ltype.simpletype());
+                rvalue1 = CreateCast(type_scope, builder,
+                                     rtype1.simpletype(), rvalue1,
+                                     ltype.simpletype());
 
                 const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ltype.simpletype());
                 llvm::Value *result = nullptr;
 
                 if (type == OSLScalarTypeTraits::Integer) {
                     if (opname == Ops::u_add) {
-                        result = irgen_context.builder().CreateAdd(rvalue0, rvalue1);
+                        result = builder.CreateAdd(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_sub) {
-                        result = irgen_context.builder().CreateSub(rvalue0, rvalue1);
+                        result = builder.CreateSub(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_mul) {
-                        result = irgen_context.builder().CreateMul(rvalue0, rvalue1);
+                        result = builder.CreateMul(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_div) {
                         if (sign) {
-                            result = irgen_context.builder().CreateSDiv(rvalue0, rvalue1);
+                            result = builder.CreateSDiv(rvalue0, rvalue1);
                         }
                         else {
-                            result = irgen_context.builder().CreateUDiv(rvalue0, rvalue1);
+                            result = builder.CreateUDiv(rvalue0, rvalue1);
                         }
                     }
                     else if (opname == Ops::u_mod) {
                         if (sign) {
-                            result = irgen_context.builder().CreateSRem(rvalue0, rvalue1);
+                            result = builder.CreateSRem(rvalue0, rvalue1);
                         }
                         else {
-                            result = irgen_context.builder().CreateURem(rvalue0, rvalue1);
+                            result = builder.CreateURem(rvalue0, rvalue1);
                         }
                     }
 
@@ -1460,25 +939,25 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 }
                 else if (type == OSLScalarTypeTraits::Real) {
                     if (opname == Ops::u_add) {
-                        result = irgen_context.builder().CreateFAdd(rvalue0, rvalue1);
+                        result = builder.CreateFAdd(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_sub) {
-                        result = irgen_context.builder().CreateFSub(rvalue0, rvalue1);
+                        result = builder.CreateFSub(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_mul) {
-                        result = irgen_context.builder().CreateFMul(rvalue0, rvalue1);
+                        result = builder.CreateFMul(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_div) {
-                        result = irgen_context.builder().CreateFDiv(rvalue0, rvalue1);
+                        result = builder.CreateFDiv(rvalue0, rvalue1);
                     }
                     else if (opname == Ops::u_mod) {
-                        result = irgen_context.builder().CreateFRem(rvalue0, rvalue1);
+                        result = builder.CreateFRem(rvalue0, rvalue1);
                     }
 
                     assert(result);
                 }
 
-                irgen_context.builder().CreateStore(result, lvalue);
+                builder.CreateStore(result, lvalue);
 
                 continue;
             }
@@ -1487,22 +966,22 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& ltype = opargs[0]->typespec();
                 const auto& rtype = opargs[1]->typespec();
 
-                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
-                auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto rvalue = symbol_scope.getValueOrDereference(opargs[1]);
 
-                rvalue = irgen_context.convertValue(ltype.simpletype(), rtype.simpletype(), rvalue);
+                rvalue = CreateCast(type_scope, builder, rtype.simpletype(), rvalue, ltype.simpletype());
 
                 const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ltype.simpletype());
                 llvm::Value *result = nullptr;
 
                 if (type == OSLScalarTypeTraits::Integer) {
-                    result = irgen_context.builder().CreateNeg(rvalue);
+                    result = builder.CreateNeg(rvalue);
                 }
                 else if (type == OSLScalarTypeTraits::Real) {
-                    result = irgen_context.builder().CreateFNeg(rvalue);
+                    result = builder.CreateFNeg(rvalue);
                 }
 
-                irgen_context.builder().CreateStore(result, lvalue);
+                builder.CreateStore(result, lvalue);
 
                 continue;
             }
@@ -1512,9 +991,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
 
-                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
-                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
-                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto rvalue0 = symbol_scope.getValueOrDereference(opargs[1]);
+                auto rvalue1 = symbol_scope.getValueOrDereference(opargs[2]);
 
                 llvm::Value *result = nullptr;
 
@@ -1526,15 +1005,15 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     assert(opname == Ops::u_eq || opname == Ops::u_neq);
 
                     auto closure = rtype0.is_closure() ? rvalue0 : rvalue1;
-                    auto closure_data = irgen_context.builder().CreateExtractValue(closure, std::vector<unsigned>{ 0 });
+                    auto closure_data = builder.CreateExtractValue(closure, std::vector<unsigned>{ 0 });
 
                     if (opname == Ops::u_eq) {
-                        result = irgen_context.builder().CreateICmpEQ(
+                        result = builder.CreateICmpEQ(
                             closure_data,
                             d_context->getLLVMClosurePointerDefaultConstant());
                     }
                     else if (opname == Ops::u_neq) {
-                        result = irgen_context.builder().CreateICmpNE(
+                        result = builder.CreateICmpNE(
                             closure_data,
                             d_context->getLLVMClosurePointerDefaultConstant());
                     }
@@ -1548,86 +1027,86 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     auto ptype = getPromotionType(std::vector<OSL::TypeDesc>{ rtype0.simpletype(),
                                                                               rtype1.simpletype() });
 
-                    rvalue0 = irgen_context.convertValue(ptype, rtype0.simpletype(), rvalue0);
-                    rvalue1 = irgen_context.convertValue(ptype, rtype1.simpletype(), rvalue1);
+                    rvalue0 = CreateCast(type_scope, builder, rtype0.simpletype(), rvalue0, ptype);
+                    rvalue1 = CreateCast(type_scope, builder, rtype1.simpletype(), rvalue1, ptype);
 
                     const auto [ type, sign, width ] = OSLScalarTypeTraits::get(ptype);
 
                     if (type == OSLScalarTypeTraits::Integer) {
                         if (opname == Ops::u_eq) {
-                            result = irgen_context.builder().CreateICmpEQ(rvalue0, rvalue1);
+                            result = builder.CreateICmpEQ(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_neq) {
-                            result = irgen_context.builder().CreateICmpNE(rvalue0, rvalue1);
+                            result = builder.CreateICmpNE(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_lt) {
                             if (sign) {
-                                result = irgen_context.builder().CreateICmpSLT(rvalue0, rvalue1);
+                                result = builder.CreateICmpSLT(rvalue0, rvalue1);
                             }
                             else {
-                                result = irgen_context.builder().CreateICmpULT(rvalue0, rvalue1);
+                                result = builder.CreateICmpULT(rvalue0, rvalue1);
                             }
                         }
                         else if (opname == Ops::u_gt) {
                             if (sign) {
-                                result = irgen_context.builder().CreateICmpSGT(rvalue0, rvalue1);
+                                result = builder.CreateICmpSGT(rvalue0, rvalue1);
                             }
                             else {
-                                result = irgen_context.builder().CreateICmpUGT(rvalue0, rvalue1);
+                                result = builder.CreateICmpUGT(rvalue0, rvalue1);
                             }
                         }
                         else if (opname == Ops::u_le) {
                             if (sign) {
-                                result = irgen_context.builder().CreateICmpSLE(rvalue0, rvalue1);
+                                result = builder.CreateICmpSLE(rvalue0, rvalue1);
                             }
                             else {
-                                result = irgen_context.builder().CreateICmpULE(rvalue0, rvalue1);
+                                result = builder.CreateICmpULE(rvalue0, rvalue1);
                             }
                         }
                         else if (opname == Ops::u_ge) {
                             if (sign) {
-                                result = irgen_context.builder().CreateICmpSGE(rvalue0, rvalue1);
+                                result = builder.CreateICmpSGE(rvalue0, rvalue1);
                             }
                             else {
-                                result = irgen_context.builder().CreateICmpUGE(rvalue0, rvalue1);
+                                result = builder.CreateICmpUGE(rvalue0, rvalue1);
                             }
                         }
                     }
                     else if (type == OSLScalarTypeTraits::Real) {
                         if (opname == Ops::u_eq) {
-                            result = irgen_context.builder().CreateFCmpUEQ(rvalue0, rvalue1);
+                            result = builder.CreateFCmpUEQ(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_neq) {
-                            result = irgen_context.builder().CreateFCmpUNE(rvalue0, rvalue1);
+                            result = builder.CreateFCmpUNE(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_lt) {
-                            result = irgen_context.builder().CreateFCmpULT(rvalue0, rvalue1);
+                            result = builder.CreateFCmpULT(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_gt) {
-                            result = irgen_context.builder().CreateFCmpUGT(rvalue0, rvalue1);
+                            result = builder.CreateFCmpUGT(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_le) {
-                            result = irgen_context.builder().CreateFCmpULE(rvalue0, rvalue1);
+                            result = builder.CreateFCmpULE(rvalue0, rvalue1);
                         }
                         else if (opname == Ops::u_ge) {
-                            result = irgen_context.builder().CreateFCmpUGE(rvalue0, rvalue1);
+                            result = builder.CreateFCmpUGE(rvalue0, rvalue1);
                         }
                     }
 
                     if (ptype.aggregate != OSL::TypeDesc::SCALAR) {
-                        result = irgen_context.builder().CreateAndReduce(result);
+                        result = builder.CreateAndReduce(result);
                     }
                 }
 
                 assert(result);
 
-                result = irgen_context.builder().CreateZExt(
+                result = builder.CreateZExt(
                     result,
                     d_context->getLLVMType(
                         OSL::TypeDesc((OSL::TypeDesc::BASETYPE)ltype.simpletype().basetype),
                         false));
 
-                irgen_context.builder().CreateStore(result, lvalue);
+                builder.CreateStore(result, lvalue);
 
                 continue;
             }
@@ -1637,36 +1116,36 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& rtype0 = opargs[1]->typespec();
                 const auto& rtype1 = opargs[2]->typespec();
 
-                auto lvalue  = irgen_context.getSymbolAddress(*opargs[0]);
-                auto rvalue0 = irgen_context.getSymbolValue(*opargs[1]);
-                auto rvalue1 = irgen_context.getSymbolValue(*opargs[2]);
+                auto lvalue  = symbol_scope.getReference(opargs[0]);
+                auto rvalue0 = symbol_scope.getValueOrDereference(opargs[1]);
+                auto rvalue1 = symbol_scope.getValueOrDereference(opargs[2]);
 
-                rvalue0 = irgen_context.convertValue(ltype.simpletype(),
-                                                     rtype0.simpletype(),
-                                                     rvalue0);
-                rvalue1 = irgen_context.convertValue(ltype.simpletype(),
-                                                     rtype1.simpletype(),
-                                                     rvalue1);
+                rvalue0 = CreateCast(type_scope, builder,
+                                     rtype0.simpletype(), rvalue0,
+                                     ltype.simpletype());
+                rvalue1 = CreateCast(type_scope, builder,
+                                     rtype1.simpletype(), rvalue1,
+                                     ltype.simpletype());
 
                 llvm::Value *result = nullptr;
 
                 if (opname == Ops::u_bitand) {
-                    result = irgen_context.builder().CreateAnd(rvalue0, rvalue1);
+                    result = builder.CreateAnd(rvalue0, rvalue1);
                 }
                 else if (opname == Ops::u_bitor) {
-                    result = irgen_context.builder().CreateOr(rvalue0, rvalue1);
+                    result = builder.CreateOr(rvalue0, rvalue1);
                 }
                 else if (opname == Ops::u_xor) {
-                    result = irgen_context.builder().CreateXor(rvalue0, rvalue1);
+                    result = builder.CreateXor(rvalue0, rvalue1);
                 }
                 else if (opname == Ops::u_shl) {
-                    result = irgen_context.builder().CreateShl(rvalue0, rvalue1);
+                    result = builder.CreateShl(rvalue0, rvalue1);
                 }
                 else if (opname == Ops::u_shr) {
-                    result = irgen_context.builder().CreateAShr(rvalue0, rvalue1);
+                    result = builder.CreateAShr(rvalue0, rvalue1);
                 }
 
-                irgen_context.builder().CreateStore(result, lvalue);
+                builder.CreateStore(result, lvalue);
 
                 continue;
             }
@@ -1675,13 +1154,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 const auto& ltype = opargs[0]->typespec();
                 const auto& rtype = opargs[1]->typespec();
 
-                auto lvalue = irgen_context.getSymbolAddress(*opargs[0]);
-                auto rvalue = irgen_context.getSymbolValue(*opargs[1]);
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto rvalue = symbol_scope.getValueOrDereference(opargs[1]);
 
-                rvalue = irgen_context.convertValue(ltype.simpletype(), rtype.simpletype(), rvalue);
+                rvalue = CreateCast(type_scope, builder, rtype.simpletype(), rvalue, ltype.simpletype());
 
-                irgen_context.builder().CreateStore(
-                    irgen_context.builder().CreateNeg(rvalue),
+                builder.CreateStore(
+                    builder.CreateNeg(rvalue),
                     lvalue);
 
                 continue;
@@ -1689,9 +1168,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             if (opname == Ops::u_closure) {
                 auto it_arg = opargs.begin();
-                auto lvalue  = irgen_context.getSymbolAddress(*(*it_arg++));
+                auto lvalue  = symbol_scope.getReference((*it_arg++));
 
-                auto weight = (!(*it_arg)->typespec().is_string()) ? irgen_context.getSymbolValue(*(*it_arg++)) : nullptr;
+                auto weight = (!(*it_arg)->typespec().is_string()) ? symbol_scope.getValueOrDereference((*it_arg++)) : nullptr;
 
                 auto closure_name = (*it_arg++)->get_string();
                 auto closure = d_context->getClosure(llvm::StringRef(closure_name.data(), closure_name.length()));
@@ -1704,24 +1183,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 auto params_type_size = d_module->getDataLayout().getStructLayout(params_type)->getSizeInBytes();
 
                 auto closure_value = weight
-                    ? irgen_context.callLibraryFunction(
-                        "osl_allocate_weighted_closure_component", std::vector<llvm::Value *>{
-                            renderer,
-                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, closure->id(), true)),
-                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, 0, true)),
-                            weight
-                        })
-                    : irgen_context.callLibraryFunction(
-                        "osl_allocate_closure_component", std::vector<llvm::Value *>{
-                            renderer,
-                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, closure->id(), true)),
-                            llvm::ConstantInt::get(ll_context, llvm::APInt(32, 0, true))
-                        });
+                    ? osl_allocate_weighted_closure_component(renderer, closure->id(), params_type_size, weight)
+                    : osl_allocate_closure_component(renderer, closure->id(), params_type_size);
 
                 // Load parameters:
                 auto params =
-                    irgen_context.builder().CreateBitCast(
-                        irgen_context.builder().CreateExtractValue(closure_value, std::vector<unsigned>{ 0 }),
+                    builder.CreateBitCast(
+                        builder.CreateExtractValue(closure_value, std::vector<unsigned>{ 0 }),
                         llvm::PointerType::get(params_type, d_context->bxdf_address_space()));
 
                 struct Frame {
@@ -1745,8 +1213,8 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                     const auto& ltype = *lhs_type_index;
                     const auto& rtype = arg->typespec().simpletype();
 
-                    auto lvalue = irgen_context.builder().CreateStructGEP(nullptr, params, lhs_value_index);
-                    auto rvalue = irgen_context.convertValue(ltype, rtype, irgen_context.getSymbolValue(*arg));
+                    auto lvalue = builder.CreateStructGEP(nullptr, params, lhs_value_index);
+                    auto rvalue = CreateCast(type_scope, builder, rtype, symbol_scope.getValueOrDereference(arg), ltype);
 
                     stack.push({
                         ltype, lvalue, rvalue
@@ -1784,9 +1252,9 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                             case OSL::TypeDesc::VEC3:
                             case OSL::TypeDesc::VEC4:
                                 for (unsigned i = 0; i < n; ++i) {
-                                    irgen_context.builder().CreateStore(
-                                        irgen_context.builder().CreateExtractElement(rvalue, i),
-                                        irgen_context.builder().CreateConstInBoundsGEP2_32(nullptr, lvalue, 0, i));
+                                    builder.CreateStore(
+                                        builder.CreateExtractElement(rvalue, i),
+                                        builder.CreateConstInBoundsGEP2_32(nullptr, lvalue, 0, i));
                                 }
 
                                 continue;
@@ -1799,24 +1267,24 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                         }
                     }
 
-                    irgen_context.builder().CreateStore(rvalue, lvalue);
+                    builder.CreateStore(rvalue, lvalue);
                 }
 
-                irgen_context.builder().CreateStore(closure_value, lvalue);
+                builder.CreateStore(closure_value, lvalue);
 
                 continue;
             }
         }
 
-        irgen_context.builder().CreateBr(merge_block);
+        builder.CreateBr(merge_block);
 
-        irgen_context.endBlock();
+        builder.ClearInsertionPoint();
     }
 
-    auto function = irgen_context.endFunction();
+    SortBasicBlocksTopologically(function);
 
     d_main_function_md.reset(
-        llvm::ValueAsMetadata::get(function.release()));
+        llvm::ValueAsMetadata::get(function));
 }
 
 Shader::~Shader() {
