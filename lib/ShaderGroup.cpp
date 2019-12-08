@@ -90,7 +90,7 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
 
     // Instrument the function with path information, and collect information
     // about the BXDFs:
-    auto closure_ir = new ClosureIRPass(*this);
+    auto closure_ir = new ClosureIRPass();
     auto path_info = new PathInfoPass();
     auto instrumentation = new InstrumentationPass();
     auto bxdf = new BXDFPass();

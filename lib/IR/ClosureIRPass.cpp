@@ -1,4 +1,3 @@
-#include <llosl/ShaderGroup.h>
 #include <llosl/IR/ClosureIRPass.h>
 #include <llosl/IR/ClosureFunction.h>
 #include <llosl/IR/Instruction.h>
@@ -15,6 +14,7 @@
 #include <llvm/IR/Instructions.h>
 
 #include <algorithm>
+#include <iostream>
 #include <list>
 #include <stack>
 
@@ -29,20 +29,20 @@ namespace llosl {
 class ClosureIRPass::Context {
 public:
 
-    Context(ShaderGroup&, llvm::Function&, llvm::LoopInfo&, llvm::AAResults&);
+    Context(llvm::Function&, llvm::LoopInfo&, llvm::AAResults&);
 
     llvm::LoopInfo&       loop_info()       { return d_loop_info; }
     const llvm::LoopInfo& loop_info() const { return d_loop_info; }
 
-    llvm::Function *osl_add_closure_closure                 = nullptr,
+    llvm::Function *llosl_closure_output_annotation         = nullptr,
+                   *llosl_closure_storage_annotation        = nullptr,
+                   *osl_add_closure_closure                 = nullptr,
                    *osl_mul_closure_color                   = nullptr,
                    *osl_mul_closure_float                   = nullptr,
                    *osl_allocate_closure_component          = nullptr,
                    *osl_allocate_weighted_closure_component = nullptr;
 
     ClosureFunction *getFunction() const { return d_closure_function.get(); }
-
-    llvm::GetElementPtrInst *Ci() const { return d_Ci.get(); }
 
     using SortedBlocks = std::list<std::vector<llvm::BasicBlock *> >;
     const SortedBlocks& getBlocksInTopologicalOrder() const { return d_sorted_blocks; };
@@ -68,8 +68,7 @@ public:
     const Block *block() const { return d_block; };
 
     //
-    Alloca                    *createAlloca(const llvm::CallInst&);
-    Alloca                    *createAlloca(const llvm::AllocaInst&);
+    Reference                 *createReference(const llvm::CallInst&);
     AllocateComponent         *createAllocateComponent(const llvm::CallInst&);
     AllocateWeightedComponent *createAllocateWeightedComponent(const llvm::CallInst&);
     AddClosureClosure         *createAddClosureClosure(const llvm::CallInst&);
@@ -97,8 +96,6 @@ private:
 
     Block *getBlock();
 
-    ShaderGroup& d_shader_group;
-
     State d_state = State::ClosureStorage;
 
     llvm::LLVMContext& d_ll_context;
@@ -110,8 +107,6 @@ private:
     SortedBlocks d_sorted_blocks;
 
     // Memory locations that are known to refer to closures:
-    std::unique_ptr<llvm::GetElementPtrInst> d_Ci;
-
     mutable llvm::DenseMap<llvm::MemoryLocation, unsigned> d_closure_locations;
     unsigned d_closure_storage_count = 0;
 
@@ -127,15 +122,15 @@ private:
 };
 
 ClosureIRPass::Context::Context(
-    ShaderGroup& shader_group,
     llvm::Function& function,
     llvm::LoopInfo& loop_info, llvm::AAResults& aa)
-: d_shader_group(shader_group)
-, d_ll_context(function.getParent()->getContext())
+: d_ll_context(function.getParent()->getContext())
 , d_module(*function.getParent())
 , d_function(function)
 , d_loop_info(loop_info)
 , d_aa(aa) {
+    llosl_closure_output_annotation         = d_module.getFunction("llosl_closure_output_annotation");
+    llosl_closure_storage_annotation        = d_module.getFunction("llosl_closure_storage_annotation");
     osl_add_closure_closure                 = d_module.getFunction("osl_add_closure_closure");
     osl_mul_closure_color                   = d_module.getFunction("osl_mul_closure_color");
     osl_mul_closure_float                   = d_module.getFunction("osl_mul_closure_float");
@@ -148,17 +143,6 @@ ClosureIRPass::Context::Context(
         std::back_inserter(d_sorted_blocks));
 
     std::reverse(d_sorted_blocks.begin(), d_sorted_blocks.end());
-
-    //
-    auto globals = d_function.arg_begin();
-
-    d_Ci.reset(
-        llvm::GetElementPtrInst::Create(
-            nullptr,
-            globals, { llvm::ConstantInt::get(llvm::Type::getInt64Ty(d_ll_context),  0, true),
-	                   llvm::ConstantInt::get(llvm::Type::getInt32Ty(d_ll_context), 20, true)  }));
-
-    insertClosureStorage(llvm::MemoryLocation(d_Ci.get(), 1));
 }
 
 unsigned
@@ -246,38 +230,19 @@ ClosureIRPass::Context::getBlock() {
     return d_block;
 }
 
-Alloca *
-ClosureIRPass::Context::createAlloca(const llvm::CallInst& call_instruction) {
+Reference *
+ClosureIRPass::Context::createReference(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    auto storage = call_instruction.getArgOperand(1);
-    auto cast_instruction = llvm::dyn_cast<llvm::CastInst>(storage);
-    assert(cast_instruction);
+    auto storage = call_instruction.getArgOperand(0);
 
-    storage = cast_instruction->getOperand(0);
-    auto alloca_instruction = llvm::dyn_cast<llvm::AllocaInst>(storage);
-    assert(alloca_instruction);
-
-    llvm::MemoryLocation location(alloca_instruction, 1);
+    llvm::MemoryLocation location(storage, 1);
     auto tmp = findClosureStorage(location);
     assert(tmp);
 
-    auto instruction = new Alloca(*alloca_instruction, *tmp, block);
+    auto instruction = new Reference(*storage, *tmp, block);
     insertValue(instruction);
     insertValue(&call_instruction, instruction);
-    return instruction;
-}
-
-Alloca *
-ClosureIRPass::Context::createAlloca(const llvm::AllocaInst& alloca_instruction) {
-    auto block = getBlock();
-
-    llvm::MemoryLocation location(&alloca_instruction, 1);
-    auto tmp = findClosureStorage(location);
-    assert(tmp);
-
-    auto instruction = new Alloca(alloca_instruction, *tmp, block);
-    insertValue(instruction);
     return instruction;
 }
 
@@ -362,7 +327,14 @@ ClosureIRPass::Context::createStore(const llvm::StoreInst& store_instruction) {
         return nullptr;
     }
 
-    auto rhs = findValue(store_instruction.getValueOperand());
+    auto value = store_instruction.getValueOperand();
+
+    // Skip the initialization of the closure storage:
+    if (llvm::isa<llvm::Constant>(value)) {
+        return nullptr;
+    }
+
+    auto rhs = findValue(value);
     assert(rhs);
 
     auto block = getBlock();
@@ -442,17 +414,10 @@ ClosureIRPass::ClosureIRPass()
     llvm::initializeClosureIRPassPass(*llvm::PassRegistry::getPassRegistry());
 }
 
-ClosureIRPass::ClosureIRPass(ShaderGroup& shader_group)
-: FunctionPass(ID)
-, d_shader_group(&shader_group) {
-    llvm::initializeClosureIRPassPass(*llvm::PassRegistry::getPassRegistry());
-}
-
 char ClosureIRPass::ID = 0;
 
 bool ClosureIRPass::runOnFunction(llvm::Function &F) {
     Context context(
-        *d_shader_group,
         F,
         getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo(),
         getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
@@ -471,16 +436,21 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                     std::for_each(
                         block->begin(), block->end(),
                         [this, &context](const auto& ll_instruction) -> void {
-                            auto alloca_instruction = llvm::dyn_cast<llvm::AllocaInst>(&ll_instruction);
-                            if (!alloca_instruction) {
+                            auto call_instruction = llvm::dyn_cast<llvm::CallInst>(&ll_instruction);
+                            if (!call_instruction) {
                                 return;
                             }
 
-                            if (alloca_instruction->getAllocatedType() != d_shader_group->closure_type()) {
+                            auto called_function = call_instruction->getCalledValue();
+
+                            if (called_function != context.llosl_closure_output_annotation &&
+                                called_function != context.llosl_closure_storage_annotation) {
                                 return;
                             }
 
-                            context.insertClosureStorage(llvm::MemoryLocation(alloca_instruction, 1));
+                            auto storage = call_instruction->getOperand(0);
+
+                            context.insertClosureStorage(llvm::MemoryLocation(storage, 1));
                         });
                 });
         });
@@ -504,18 +474,15 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                         block->begin(), block->end(),
                         [this, &context](auto& ll_instruction) -> void {
                             switch (ll_instruction.getOpcode()) {
-                            case llvm::Instruction::Alloca: {
-                                auto alloca_instruction = llvm::cast<llvm::AllocaInst>(&ll_instruction);
-
-                                if (alloca_instruction->getAllocatedType() == d_shader_group->closure_type()) {
-                                    context.createAlloca(*alloca_instruction);
-                                }
-                            } break;
                             case llvm::Instruction::Call: {
                                 auto call_instruction = llvm::cast<llvm::CallInst>(&ll_instruction);
                                 auto called_function = call_instruction->getCalledValue();
 
-                                if (called_function == context.osl_allocate_closure_component) {
+                                if (called_function == context.llosl_closure_output_annotation ||
+                                    called_function == context.llosl_closure_storage_annotation) {
+                                    context.createReference(*call_instruction);
+                                }
+                                else if (called_function == context.osl_allocate_closure_component) {
                                     context.createAllocateComponent(*call_instruction);
                                 }
                                 else if (called_function == context.osl_allocate_weighted_closure_component) {

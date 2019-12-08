@@ -18,7 +18,7 @@ public:
 
     enum class ValueKind {
         Instruction,
-        Alloca,
+        Reference,
         Load,
         Store,
         AllocateComponent,

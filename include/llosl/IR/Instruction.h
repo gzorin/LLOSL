@@ -9,7 +9,6 @@
 #include <llvm/IR/ValueHandle.h>
 
 namespace llvm {
-class AllocaInst;
 class CallInst;
 class CastInst;
 class LoadInst;
@@ -43,14 +42,14 @@ private:
     Block *d_block = nullptr;
 };
 
-class Alloca : public Instruction {
+class Reference : public Instruction {
 public:
 
     static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Alloca;
+        return value->getKind() == Value::ValueKind::Reference;
     }
 
-    Alloca(const llvm::AllocaInst&, unsigned, Block * = nullptr);
+    Reference(const llvm::Value&, unsigned, Block * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
@@ -59,7 +58,7 @@ public:
 
 private:
 
-    const llvm::AllocaInst& d_ll_instruction;
+    const llvm::Value& d_ll_value;
     unsigned d_location;
 };
 

@@ -31,21 +31,21 @@ Instruction::setParent(Block *block) {
     }
 }
 
-// Alloca
-Alloca::Alloca(const llvm::AllocaInst& ll_instruction, unsigned location, Block *block)
-: Instruction(Value::ValueKind::Alloca, 0, block)
-, d_ll_instruction(ll_instruction)
+// Reference
+Reference::Reference(const llvm::Value& ll_value, unsigned location, Block *block)
+: Instruction(Value::ValueKind::Reference, 0, block)
+, d_ll_value(ll_value)
 , d_location(location) {
 }
 
 const llvm::Value *
-Alloca::getLLValue() const {
-    return &d_ll_instruction;
+Reference::getLLValue() const {
+    return &d_ll_value;
 }
 
 void
-Alloca::dump() const {
-    llvm::errs() << "Alloca " << d_location << '\n';
+Reference::dump() const {
+    llvm::errs() << "Reference " << d_location << '\n';
 }
 
 // Load

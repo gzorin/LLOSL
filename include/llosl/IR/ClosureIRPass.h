@@ -16,7 +16,6 @@ public:
     static char ID;
 
     ClosureIRPass();
-    ClosureIRPass(ShaderGroup&);
 
     std::shared_ptr<const ClosureFunction> getIR() const { return d_closure_function; }
 
@@ -27,8 +26,6 @@ public:
 private:
 
     class Context;
-
-    ShaderGroup* d_shader_group = nullptr;
 
     std::shared_ptr<const ClosureFunction> d_closure_function;
 };

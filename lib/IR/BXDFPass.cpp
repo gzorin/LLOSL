@@ -91,7 +91,7 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
             block->insts_begin(), block->insts_end(),
             [path_info, &bxdf_info, &frame](const auto& inst) -> void {
                 switch(inst.getKind()) {
-                case Value::ValueKind::Alloca: {
+                case Value::ValueKind::Reference: {
                     frame.values[&inst] = std::make_shared<BXDFAST::Node>(BXDFAST::Void());
                 } break;
                 case Value::ValueKind::Load: {
@@ -138,6 +138,8 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
                     frame.values[&inst] = frame.values[cast_instruction->getOperand()];
                 } break;
                 case Value::ValueKind::Return: {
+                    // TODO: storage[0] happens to always be 'Ci', but all outputs should be
+                    // processed here, too:
                     bxdf_info->addBXDFForPath(frame.path_id, frame.storage[0], frame.heap_size);
                 } break;
                 default:
