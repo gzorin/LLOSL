@@ -25,6 +25,8 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Transforms/IPO.h>
+#include <llvm/Transforms/Scalar.h>
 
 #include <osl_pvt.h>
 #include <oslexec_pvt.h>
@@ -1437,6 +1439,15 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     auto shaders_md = d_module->getOrInsertNamedMetadata("llosl.shaders");
     shaders_md->addOperand(d_md.get());
+
+    // Other optimizations:
+    auto mpm = std::make_unique<llvm::legacy::PassManager>();
+    mpm->add(llvm::createReassociatePass());
+    mpm->add(llvm::createSCCPPass());
+    mpm->add(llvm::createAggressiveDCEPass());
+    mpm->add(llvm::createCFGSimplificationPass());
+    mpm->add(llvm::createPromoteMemoryToRegisterPass());
+    mpm->run(*d_module);
 }
 
 Shader::~Shader() {
