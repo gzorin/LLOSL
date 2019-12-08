@@ -628,7 +628,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 });
 
                 builder.CreateBr(function_block);
-                builder.SetInsertPoint(function_block);
+                builder.SetInsertPoint(block);
 
                 continue;
             }
