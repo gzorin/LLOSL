@@ -5,6 +5,11 @@
 #include "SymbolScope.h"
 #include "TypeScope.h"
 
+#include <llosl/IR/BXDFAST.h>
+#include <llosl/IR/BXDFPass.h>
+#include <llosl/IR/ClosureIRPass.h>
+#include <llosl/IR/InstrumentationPass.h>
+#include <llosl/IR/PathInfoPass.h>
 #include <llosl/Closure.h>
 #include <llosl/Shader.h>
 
@@ -15,6 +20,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
@@ -484,12 +490,14 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             param_types.push_back(type);
         });
 
+    auto function_name = shader_master.shadername();
+
     auto function = llvm::Function::Create(
         llvm::FunctionType::get(
             llvm::Type::getVoidTy(ll_context),
             param_types,
             false),
-        llvm::GlobalValue::ExternalLinkage, shader_master.shadername(), d_module.get());
+        llvm::GlobalValue::ExternalLinkage, function_name, d_module.get());
 
     auto shader_globals = function->arg_begin();
     shader_globals->setName("shaderglobals");
@@ -1282,6 +1290,116 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     }
 
     SortBasicBlocksTopologically(function);
+
+    // Instrument the function with path information, and collect information
+    // about the BXDFs:
+    auto closure_ir = new ClosureIRPass();
+    auto path_info = new PathInfoPass();
+    auto instrumentation = new InstrumentationPass();
+    auto bxdf = new BXDFPass();
+
+    auto fpm = std::make_unique<llvm::legacy::FunctionPassManager>(d_module.get());
+    fpm->add(closure_ir);
+    fpm->add(path_info);
+    fpm->add(instrumentation);
+    fpm->add(bxdf);
+    fpm->run(*function);
+
+    // `function` was rewritten:
+    function = d_module->getFunction(function_name);
+    assert(function);
+
+    // BXDFs:
+    d_bxdf_info = bxdf->getBXDFInfo();
+
+    unsigned path_count = d_bxdf_info->getPathCount();
+
+    d_bxdfs.reserve(path_count);
+    auto it_bxdf = std::back_inserter(d_bxdfs);
+
+    auto int16_type = llvm::Type::getInt16Ty(ll_context);
+    auto path_id_to_index_type = llvm::ArrayType::get(int16_type, path_count);
+
+    std::vector<llvm::Constant *> path_id_to_index;
+    path_id_to_index.reserve(path_count);
+    auto it_path_id_to_index = std::back_inserter(path_id_to_index);
+
+#if 0
+    std::vector<llvm::Metadata *> bxdf_mds;
+    auto it = std::back_inserter(bxdf_mds);
+
+    // First node is the number of paths:
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_count)));
+
+    // Second node is the max heap size:
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(32, d_bxdf_info->getMaxHeapSize())));
+#endif
+
+    // Remaining nodes are repeating tuples of (path_id, heap_size, encoding):
+    for (unsigned path_id = 0; path_id < path_count; ++path_id) {
+        const auto& bxdf_info = d_bxdf_info->getBXDFForPath(path_id);
+        auto encoding = BXDFAST::encode(bxdf_info.ast);
+
+        auto [ bxdf, index, inserted ] = d_context->getOrInsertBXDF(encoding, bxdf_info.ast, bxdf_info.heap_size);
+
+        *it_bxdf = bxdf;
+
+        *it_path_id_to_index = llvm::ConstantInt::get(int16_type, index);
+
+#if 0
+        *it++ = llvm::MDTuple::get(ll_context, {
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_id))),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(ll_context, llvm::APInt(32, bxdf_info.heap_size))),
+            llvm::MDString::get(ll_context,
+                llvm::StringRef(reinterpret_cast<const char *>(encoding.data()),
+                                encoding.size()))
+        });
+#endif
+    }
+
+    auto path_id_to_index_value = new llvm::GlobalVariable(
+        *d_module, path_id_to_index_type, true,
+        llvm::GlobalVariable::InternalLinkage,
+        llvm::ConstantArray::get(path_id_to_index_type, path_id_to_index),
+        "LLOSLPathIdToIndex", nullptr,
+        llvm::GlobalVariable::NotThreadLocal, 2);
+
+    // Create a function that calls the main function and maps the
+    // resulting path id to an index into the uber BXDF:
+    auto mapping_function = llvm::Function::Create(
+        function->getFunctionType(),
+        llvm::GlobalValue::ExternalLinkage, function->getName().str() + "_mapped", d_module.get());
+
+  { auto entry_block = llvm::BasicBlock::Create(ll_context, "entry", mapping_function);
+
+    llvm::IRBuilder<> builder(ll_context);
+    builder.SetInsertPoint(entry_block);
+
+    std::vector<llvm::Value *> args;
+    args.reserve(mapping_function->arg_size());
+    std::transform(
+        mapping_function->arg_begin(), mapping_function->arg_end(),
+        std::back_inserter(args),
+        [](auto& arg) -> llvm::Value *{
+            return &arg;
+        });
+
+    auto path_id = builder.CreateCall(function, args);
+
+    auto index = builder.CreateLoad(
+        builder.CreateGEP(path_id_to_index_value, std::vector<llvm::Value *>{
+            path_id }));
+
+    builder.CreateRet(path_id); }
+
+#if 0
+    d_bxdf_md.reset(
+        llvm::MDTuple::get(ll_context, bxdf_mds));
+#endif
 
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(function));
