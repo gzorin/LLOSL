@@ -458,12 +458,23 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     llvm::IRBuilder<> builder(ll_context);
 
     //
-    std::vector<llvm::Type *> param_types = { llvm::PointerType::get(d_context->getShaderGlobalsType(), 0) };
+    d_parameter_count = shader_master.num_params();
+    d_parameters = std::allocator<Parameter>().allocate(d_parameter_count);
+
+    auto parameter = d_parameters;
+    unsigned parameter_index = 0;
+
+    std::vector<llvm::Type *> param_types;
+    param_types.reserve(d_parameter_count + 1);
+
+    auto it_param_type = std::back_inserter(param_types);
+
+    *it_param_type++ = llvm::PointerType::get(d_context->getShaderGlobalsType(), 0);
 
     const auto& symbols = shader_master.symbols();
     std::for_each(
         symbols.begin(), symbols.end(),
-        [&type_scope, &param_types](const auto& symbol) -> void {
+        [this, &type_scope, &parameter, &parameter_index, &it_param_type](const auto& symbol) -> void {
             auto s = symbol.dealias();
             auto st = s->symtype();
 
@@ -487,7 +498,11 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 }
             }
 
-            param_types.push_back(type);
+            new (parameter++) Parameter(
+                st == SymTypeOutputParam,
+                type, parameter_index++, s->name(), t.is_closure(), t.simpletype(), this);
+
+            *it_param_type++ = type;
         });
 
     auto function_name = shader_master.shadername();
@@ -1291,6 +1306,18 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     SortBasicBlocksTopologically(function);
 
+    // Parameter metadata:
+    std::vector<llvm::Metadata *> parameter_mds;
+    std::transform(
+        d_parameters, d_parameters + d_parameter_count,
+        std::back_inserter(parameter_mds),
+            [](auto& parameter) -> llvm::Metadata * {
+                return parameter.d_md.get();
+        });
+
+    d_parameters_md.reset(
+        llvm::MDTuple::get(ll_context, parameter_mds));
+
     // Instrument the function with path information, and collect information
     // about the BXDFs:
     auto closure_ir = new ClosureIRPass();
@@ -1324,7 +1351,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     path_id_to_index.reserve(path_count);
     auto it_path_id_to_index = std::back_inserter(path_id_to_index);
 
-#if 0
+    // Metadata:
     std::vector<llvm::Metadata *> bxdf_mds;
     auto it = std::back_inserter(bxdf_mds);
 
@@ -1335,7 +1362,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     // Second node is the max heap size:
     *it++ = llvm::ConstantAsMetadata::get(
         llvm::ConstantInt::get(ll_context, llvm::APInt(32, d_bxdf_info->getMaxHeapSize())));
-#endif
 
     // Remaining nodes are repeating tuples of (path_id, heap_size, encoding):
     for (unsigned path_id = 0; path_id < path_count; ++path_id) {
@@ -1348,7 +1374,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
         *it_path_id_to_index = llvm::ConstantInt::get(int16_type, index);
 
-#if 0
+        // Metadata:
         *it++ = llvm::MDTuple::get(ll_context, {
             llvm::ConstantAsMetadata::get(
                 llvm::ConstantInt::get(ll_context, llvm::APInt(32, path_id))),
@@ -1358,7 +1384,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                 llvm::StringRef(reinterpret_cast<const char *>(encoding.data()),
                                 encoding.size()))
         });
-#endif
     }
 
     auto path_id_to_index_value = new llvm::GlobalVariable(
@@ -1396,13 +1421,22 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     builder.CreateRet(path_id); }
 
-#if 0
     d_bxdf_md.reset(
         llvm::MDTuple::get(ll_context, bxdf_mds));
-#endif
 
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(function));
+
+    // All metadata:
+    d_md.reset(
+        llvm::MDTuple::get(ll_context, {
+            d_main_function_md.get(),
+            d_parameters_md.get(),
+            d_bxdf_md.get()
+        }));
+
+    auto shaders_md = d_module->getOrInsertNamedMetadata("llosl.shaders");
+    shaders_md->addOperand(d_md.get());
 }
 
 Shader::~Shader() {
@@ -1423,27 +1457,36 @@ Shader::main_function() const {
       : nullptr;
 }
 
-Shader::Parameter::Parameter(unsigned index, const OSL::ustring& name, const OSL::TypeDesc& type, Shader *parent)
-: d_parent(parent) {
+Shader::Parameter::Parameter(bool is_output, llvm::Type *llvm_type, unsigned index, const OSL::ustring& name, bool is_closure, const OSL::TypeDesc& osl_type, Shader *parent)
+: d_parent(parent)
+, d_is_output(is_output)
+, d_type(llvm_type)
+, d_is_closure(is_closure) {
     auto& ll_context = d_parent->module()->getContext();
 
+    std::vector<llvm::Metadata *> mds;
+    mds.reserve(8 + (d_is_output? 1 : 0) + (d_is_closure? 1 : 0));
+
+    auto it = std::back_inserter(mds);
+
+    if (d_is_output) *it++ = llvm::MDString::get(ll_context, "llosl.output_parameter");
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(32, index, true)));
+    *it++ = llvm::MDString::get(ll_context, "llosl.parameter_name");
+    *it++ = llvm::MDString::get(ll_context, name.c_str());
+    *it++ = llvm::MDString::get(ll_context, "llosl.type");
+    if (d_is_closure) *it++ = llvm::MDString::get(ll_context, "llosl.closure");
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(8, osl_type.basetype, true)));
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(8, osl_type.aggregate, true)));
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(8, osl_type.vecsemantics, true)));
+    *it++ = llvm::ConstantAsMetadata::get(
+        llvm::ConstantInt::get(ll_context, llvm::APInt(32, osl_type.arraylen, true)));
+
     d_md.reset(
-        llvm::MDTuple::get(
-        ll_context, {
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(ll_context, llvm::APInt(32, index, true))),
-            llvm::MDString::get(ll_context, "llosl.parameter_name"),
-            llvm::MDString::get(ll_context, name.c_str()),
-            llvm::MDString::get(ll_context, "llosl.type"),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(ll_context, llvm::APInt(8, type.basetype, true))),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(ll_context, llvm::APInt(8, type.aggregate, true))),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(ll_context, llvm::APInt(8, type.vecsemantics, true))),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(ll_context, llvm::APInt(32, type.arraylen, true)))
-        }));
+        llvm::MDTuple::get(ll_context, mds));
 }
 
 unsigned
@@ -1462,8 +1505,7 @@ Shader::Parameter::name() const {
 
 llvm::Type *
 Shader::Parameter::llvm_type() const {
-    //return llvm::cast<llvm::StructType>(d_parent->data_type())->getTypeAtIndex(index());
-    return nullptr;
+    return d_type;
 }
 
 OIIO::TypeDesc

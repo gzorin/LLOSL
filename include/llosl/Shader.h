@@ -52,21 +52,28 @@ public:
     class Parameter {
     public:
 
+        bool is_output() const { return d_is_output; }
+
         unsigned index() const;
         llvm::StringRef name() const;
         llvm::Type *llvm_type() const;
+        bool is_closure() const { return d_is_closure; }
         OIIO::TypeDesc osl_type() const;
 
     private:
 
         friend class Shader;
 
-        Parameter(unsigned, const OIIO::ustring&, const OIIO::TypeDesc&, Shader *);
+        Parameter(bool, llvm::Type *, unsigned, const OIIO::ustring&, bool, const OIIO::TypeDesc&, Shader *);
         ~Parameter() = default;
 
         Shader* d_parent = nullptr;
+        bool d_is_output = false;
+        llvm::Type *d_type = nullptr;
+        bool d_is_closure = false;
 
         llvm::TypedTrackingMDRef<llvm::MDTuple> d_md;
+
         unsigned d_md_index = 0;
     };
 
@@ -109,6 +116,7 @@ private:
     llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
     llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_main_function_md;
     llvm::TypedTrackingMDRef<llvm::MDTuple> d_parameters_md;
+    llvm::TypedTrackingMDRef<llvm::MDTuple> d_bxdf_md;
 
     friend class BuilderImpl;
     friend class LLOSLContextImpl;
