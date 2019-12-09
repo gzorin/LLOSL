@@ -3,6 +3,7 @@
 
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/InstrTypes.h>
+#include <llvm/Support/raw_os_ostream.h>
 
 namespace llosl {
 
@@ -13,7 +14,6 @@ Block::Block(const llvm::BasicBlock& ll_block, ClosureFunction *function)
 }
 
 Block::~Block() {
-    //assert(!d_function);
 }
 
 void
@@ -65,6 +65,17 @@ Block::eraseSuccessor(Block *block) {
 const llvm::Value *
 Block::getLLValue() const {
     return &d_ll_block;
+}
+
+void
+Block::dump() const {
+    llvm::errs() << "Block\n";
+
+    std::for_each(
+        insts_begin(), insts_end(),
+        [](const auto& inst) {
+            inst.dump();
+        });
 }
 
 } // End namespace llosl

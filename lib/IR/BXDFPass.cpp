@@ -68,7 +68,8 @@ BXDFInfo::Create(const ClosureFunction& function, const PathInfo& path_info) {
             block->insts_begin(), block->insts_end(),
             [&bxdf_info, &frame](const auto& inst) -> void {
                 switch(inst.getKind()) {
-                case Value::ValueKind::Reference: {
+                case Value::ValueKind::Reference:
+                case Value::ValueKind::Null: {
                     frame.values[&inst] = std::make_shared<BXDFAST::Node>(BXDFAST::Void());
                 } break;
                 case Value::ValueKind::Load: {

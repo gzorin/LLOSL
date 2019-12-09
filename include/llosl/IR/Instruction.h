@@ -62,6 +62,22 @@ private:
     unsigned d_location;
 };
 
+class Null : public Instruction {
+public:
+
+    static bool classof(const Value* value) {
+        return value->getKind() == Value::ValueKind::Null;
+    }
+
+    Null(const llvm::Value&, Block * = nullptr);
+
+    const llvm::Value *getLLValue() const override;
+
+private:
+
+    const llvm::Value& d_ll_value;
+};
+
 class Load : public Instruction {
 public:
 

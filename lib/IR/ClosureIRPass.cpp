@@ -119,6 +119,8 @@ private:
 
     // Values that are known to represent closures:
     llvm::DenseMap<const llvm::Value *, Value *> d_value_map;
+
+    Null *d_null = nullptr;
 };
 
 ClosureIRPass::Context::Context(
@@ -329,9 +331,10 @@ ClosureIRPass::Context::createStore(const llvm::StoreInst& store_instruction) {
 
     auto value = store_instruction.getValueOperand();
 
-    // Skip the initialization of the closure storage:
-    if (llvm::isa<llvm::Constant>(value)) {
-        return nullptr;
+    if (llvm::isa<llvm::Constant>(value) && !d_null) {
+        auto block = getBlock();
+        d_null = new Null(*value, block);
+        insertValue(d_null);
     }
 
     auto rhs = findValue(value);

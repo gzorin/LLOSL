@@ -75,7 +75,7 @@ InstrumentFunctionForPathId(llvm::Function& F, const PathInfo& path_info, llvm::
             // A block that returns from the function should just return the value of `path_id`:
             if (block.succs_begin() == block.succs_end()) {
                 auto terminator = ll_block->getTerminator();
-                assert(llvm::isa<llvm::ReturnInst>(terminator));
+    //          assert(llvm::isa<llvm::ReturnInst>(terminator));
 
                 auto return_terminator = llvm::ReturnInst::Create(ll_context, current_path_id);
                 llvm::ReplaceInstWithInst(terminator, return_terminator);

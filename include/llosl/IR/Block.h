@@ -77,6 +77,8 @@ public:
     //
     const llvm::Value *getLLValue() const override;
 
+    void dump() const override;
+
 private:
 
     const llvm::BasicBlock& d_ll_block;

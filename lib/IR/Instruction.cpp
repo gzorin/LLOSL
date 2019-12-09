@@ -48,6 +48,17 @@ Reference::dump() const {
     llvm::errs() << "Reference " << d_location << '\n';
 }
 
+// Null
+Null::Null(const llvm::Value& ll_value, Block *block)
+: Instruction(Value::ValueKind::Null, 0, block)
+, d_ll_value(ll_value) {
+}
+
+const llvm::Value *
+Null::getLLValue() const {
+    return &d_ll_value;
+}
+
 // Load
 Load::Load(const llvm::LoadInst& ll_instruction, unsigned location, Block *block)
 : Instruction(Value::ValueKind::Load, 1, block)

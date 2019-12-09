@@ -7,6 +7,7 @@
 
 #include <llosl/IR/BXDFAST.h>
 #include <llosl/IR/BXDFPass.h>
+#include <llosl/IR/ClosureFunction.h>
 #include <llosl/IR/ClosureIRPass.h>
 #include <llosl/IR/InstrumentationPass.h>
 #include <llosl/IR/PathInfoPass.h>
@@ -1365,6 +1366,7 @@ Shader::processBXDFs() {
     fpm.run(*function);
 
     auto closure_ir = closure_ir_pass->getIR();
+
     auto path_info = path_info_pass->getPathInfo();
 
     function = InstrumentFunctionForPathId(
@@ -1405,6 +1407,14 @@ Shader::processBXDFs() {
     for (unsigned path_id = 0; path_id < path_count; ++path_id) {
         const auto& bxdf_info = d_bxdf_info->getBXDFForPath(path_id);
         auto encoding = BXDFAST::encode(bxdf_info.ast);
+
+        // Not sure if this is the right thing to do if the path doesn't compute a
+        // closure.
+        if (encoding.empty()) {
+            *it_bxdf = nullptr;
+            *it_path_id_to_index = llvm::ConstantInt::get(int16_type, ~0);
+            continue;
+        }
 
         auto [ bxdf, index, inserted ] = d_context->getOrInsertBXDF(encoding, bxdf_info.ast, bxdf_info.heap_size);
 

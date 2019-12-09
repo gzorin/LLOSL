@@ -41,6 +41,8 @@ public:
     //
     const llvm::Value *getLLValue() const override;
 
+    void dump() const override;
+
 private:
 
     unsigned d_closure_storage_count;

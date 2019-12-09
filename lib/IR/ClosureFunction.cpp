@@ -2,6 +2,7 @@
 #include <llosl/IR/ClosureFunction.h>
 
 #include <llvm/IR/Function.h>
+#include <llvm/Support/raw_os_ostream.h>
 
 namespace llosl {
 
@@ -25,6 +26,17 @@ ClosureFunction::~ClosureFunction() {
 const llvm::Value *
 ClosureFunction::getLLValue() const {
     return nullptr;
+}
+
+void
+ClosureFunction::dump() const {
+    llvm::errs();
+
+    std::for_each(
+        blocks_begin(), blocks_end(),
+        [](const auto& block) -> void {
+            block.dump();
+        });
 }
 
 } // End namespace llosl
