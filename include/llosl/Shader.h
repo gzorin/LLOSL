@@ -55,7 +55,7 @@ public:
         bool is_output() const { return d_is_output; }
 
         unsigned index() const;
-        llvm::StringRef name() const;
+        llvm::StringRef name(unsigned) const;
         llvm::Type *llvm_type() const;
         bool is_closure() const { return d_is_closure; }
         OIIO::TypeDesc osl_type() const;
@@ -64,12 +64,13 @@ public:
 
         friend class Shader;
 
-        Parameter(bool, llvm::Type *, unsigned, const OIIO::ustring&, bool, const OIIO::TypeDesc&, Shader *);
+        Parameter(bool, llvm::Type *, unsigned, llvm::ArrayRef<OIIO::ustring>, bool, const OIIO::TypeDesc&, Shader *);
         ~Parameter() = default;
 
         Shader* d_parent = nullptr;
         bool d_is_output = false;
         llvm::Type *d_type = nullptr;
+        std::vector<OIIO::ustring> d_name;
         bool d_is_closure = false;
 
         llvm::TypedTrackingMDRef<llvm::MDTuple> d_md;

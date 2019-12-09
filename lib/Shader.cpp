@@ -502,7 +502,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
             new (parameter++) Parameter(
                 st == SymTypeOutputParam,
-                type, parameter_index++, s->name(), t.is_closure(), t.simpletype(), this);
+                type, parameter_index++, { s->name() }, t.is_closure(), t.simpletype(), this);
 
             *it_param_type++ = type;
         });
@@ -1468,7 +1468,7 @@ Shader::main_function() const {
       : nullptr;
 }
 
-Shader::Parameter::Parameter(bool is_output, llvm::Type *llvm_type, unsigned index, const OSL::ustring& name, bool is_closure, const OSL::TypeDesc& osl_type, Shader *parent)
+Shader::Parameter::Parameter(bool is_output, llvm::Type *llvm_type, unsigned index, llvm::ArrayRef<OSL::ustring> name, bool is_closure, const OSL::TypeDesc& osl_type, Shader *parent)
 : d_parent(parent)
 , d_is_output(is_output)
 , d_type(llvm_type)
@@ -1480,13 +1480,22 @@ Shader::Parameter::Parameter(bool is_output, llvm::Type *llvm_type, unsigned ind
 
     auto it = std::back_inserter(mds);
 
-    if (d_is_output) *it++ = llvm::MDString::get(ll_context, "llosl.output_parameter");
     *it++ = llvm::ConstantAsMetadata::get(
         llvm::ConstantInt::get(ll_context, llvm::APInt(32, index, true)));
     *it++ = llvm::MDString::get(ll_context, "llosl.parameter_name");
-    *it++ = llvm::MDString::get(ll_context, name.c_str());
+
+    std::vector<llvm::Metadata *> name_mds;
+    name_mds.reserve(name.size());
+
+    std::transform(
+        name.begin(), name.end(),
+        std::back_inserter(name_mds),
+        [&ll_context](auto name) -> auto {
+            return llvm::MDString::get(ll_context, name.c_str());
+        });
+
+    *it++ = llvm::MDTuple::get(ll_context, name_mds);
     *it++ = llvm::MDString::get(ll_context, "llosl.type");
-    if (d_is_closure) *it++ = llvm::MDString::get(ll_context, "llosl.closure");
     *it++ = llvm::ConstantAsMetadata::get(
         llvm::ConstantInt::get(ll_context, llvm::APInt(8, osl_type.basetype, true)));
     *it++ = llvm::ConstantAsMetadata::get(
@@ -1495,6 +1504,8 @@ Shader::Parameter::Parameter(bool is_output, llvm::Type *llvm_type, unsigned ind
         llvm::ConstantInt::get(ll_context, llvm::APInt(8, osl_type.vecsemantics, true)));
     *it++ = llvm::ConstantAsMetadata::get(
         llvm::ConstantInt::get(ll_context, llvm::APInt(32, osl_type.arraylen, true)));
+    if (d_is_closure) *it++ = llvm::MDString::get(ll_context, "llosl.closure");
+    if (d_is_output) *it++ = llvm::MDString::get(ll_context, "llosl.output_parameter");
 
     d_md.reset(
         llvm::MDTuple::get(ll_context, mds));
@@ -1509,9 +1520,11 @@ Shader::Parameter::index() const {
 }
 
 llvm::StringRef
-Shader::Parameter::name() const {
-    return llvm::cast<llvm::MDString>(d_md->getOperand(2).get())->
-	    getString();
+Shader::Parameter::name(unsigned index) const {
+    auto name = llvm::cast<llvm::MDNode>(d_md->getOperand(2).get());
+    auto name_part = llvm::cast<llvm::MDString>(d_md->getOperand(index).get());
+
+    return name_part->getString();
 }
 
 llvm::Type *
