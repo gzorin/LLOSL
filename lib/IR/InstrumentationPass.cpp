@@ -16,41 +16,21 @@
 #include <algorithm>
 #include <numeric>
 
-namespace llvm {
-
-void initializeInstrumentationPassPass(PassRegistry&);
-
-} // End namespace llvm
-
 namespace llosl {
 
-InstrumentationPass::InstrumentationPass() : FunctionPass(ID) {
-    llvm::initializeInstrumentationPassPass(*llvm::PassRegistry::getPassRegistry());
-}
-
-char InstrumentationPass::ID = 0;
-
-llvm::FunctionPass *createInstrumentationPass() {
-    return new InstrumentationPass();
-}
-
-bool InstrumentationPass::runOnFunction(llvm::Function &F) {
-    auto path_info = getAnalysis<PathInfoPass>().getPathInfo();
-
-    auto function = path_info->getIR();
-
+llvm::Function *
+InstrumentFunctionForPathId(llvm::Function& F, const PathInfo& path_info, llvm::StringRef name) {
     auto module = F.getParent();
     auto& ll_context = module->getContext();
 
     auto int16_type = llvm::Type::getInt16Ty(ll_context);
 
     auto function_type = F.getFunctionType();
+
     auto instrumented_function_type = llvm::FunctionType::get(
         int16_type, function_type->params(), false);
     auto instrumented_function = llvm::Function::Create(
-        instrumented_function_type, llvm::GlobalValue::ExternalLinkage, "", module);
-
-    instrumented_function->takeName(&F);
+        instrumented_function_type, llvm::GlobalValue::ExternalLinkage, name.empty() ? F.getName() : name, module);
 
     // Replace uses of arguments:
     std::accumulate(
@@ -80,6 +60,8 @@ bool InstrumentationPass::runOnFunction(llvm::Function &F) {
     }
 
     // Instrument the blocks:
+    auto function = path_info.getIR();
+
     std::for_each(
         function->blocks_begin(), function->blocks_end(),
         [&path_info, &ll_context, instrumented_function, path_id](auto& block) -> void {
@@ -110,7 +92,7 @@ bool InstrumentationPass::runOnFunction(llvm::Function &F) {
 
                     auto ll_succ = const_cast<llvm::BasicBlock *>(llvm::cast<llvm::BasicBlock>(succ->getLLValue())); // Bah....
 
-                    auto edge_id = path_info->getEdgeIDForBlocks(&block, succ);
+                    auto edge_id = path_info.getEdgeIDForBlocks(&block, succ);
                     assert(edge_id);
 
                     auto incr_block = llvm::BasicBlock::Create(ll_context, "llosl.incr.path_id.", instrumented_function);
@@ -138,23 +120,7 @@ bool InstrumentationPass::runOnFunction(llvm::Function &F) {
                 });
         });
 
-    function->updateLLFunction(*instrumented_function);
-
-    return true;
-}
-
-void InstrumentationPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
-    AU.setPreservesAll();
-    AU.addRequired<PathInfoPass>();
+    return instrumented_function;
 }
 
 } // End namespace llosl
-
-using llosl::InstrumentationPass;
-using namespace llvm;
-
-INITIALIZE_PASS_BEGIN(InstrumentationPass, "llosl-instrumentation",
-                      "Instrumentation", false, false)
-INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_END(InstrumentationPass, "llosl-instrumentation",
-                    "Instrumentation", false, false)

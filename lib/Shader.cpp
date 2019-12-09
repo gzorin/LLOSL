@@ -1348,31 +1348,28 @@ void
 Shader::processBXDFs() {
     auto& ll_context = d_context->getLLContext();
 
-    llvm::ValueToValueMapTy vmap;
-    auto function = llvm::CloneFunction(
-        llvm::cast<llvm::Function>(d_main_function_md->getValue()), vmap);
+    auto main_function = llvm::cast<llvm::Function>(d_main_function_md->getValue());
 
-    auto function_name = function->getName().str();
+    llvm::ValueToValueMapTy vmap;
+    auto function = llvm::CloneFunction(main_function, vmap);
 
     // Instrument the function with path information, and collect information
     // about the BXDFs:
     auto closure_ir_pass = new ClosureIRPass();
     auto path_info_pass = new PathInfoPass();
-    auto instrumentation = new InstrumentationPass();
 
     llvm::legacy::FunctionPassManager fpm(d_module.get());
 
     fpm.add(closure_ir_pass);
     fpm.add(path_info_pass);
-    fpm.add(instrumentation);
     fpm.run(*function);
 
     auto closure_ir = closure_ir_pass->getIR();
     auto path_info = path_info_pass->getPathInfo();
 
-    // `function` was rewritten:
-    function = d_module->getFunction(function_name);
-    assert(function);
+    function = InstrumentFunctionForPathId(
+        *function, *path_info,
+        llvm::formatv("{0}_{1}", main_function->getName(), "closure").str());
 
     d_closure_function_md.reset(
         llvm::ValueAsMetadata::get(function));

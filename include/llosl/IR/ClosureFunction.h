@@ -20,11 +20,8 @@ public:
         return value->getKind() == Value::ValueKind::Function;
     }
 
-    ClosureFunction(llvm::Function &, unsigned);
+    ClosureFunction(unsigned);
     ~ClosureFunction() override;
-
-    void updateLLFunction(const llvm::Function&) const;
-    const llvm::Function *getLLFunction() const { return d_ll_function; }
 
     unsigned getClosureStorageCount() const { return d_closure_storage_count; }
 
@@ -45,8 +42,6 @@ public:
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    mutable const llvm::Function *d_ll_function;
 
     unsigned d_closure_storage_count;
 

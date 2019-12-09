@@ -2,27 +2,17 @@
 #ifndef LLOSL_IR_INSTRUMENTATIONPASS_H
 #define LLOSL_IR_INSTRUMENTATIONPASS_H
 
-#include <llvm/Pass.h>
+#include <llvm/ADT/StringRef.h>
+
+namespace llvm {
+class Function;
+} // End namespace llvm
 
 namespace llosl {
 
-class ClosureFunction;
+class PathInfo;
 
-class InstrumentationPass : public llvm::FunctionPass {
-public:
-    static char ID;
-
-    InstrumentationPass();
-
-    bool runOnFunction(llvm::Function &F) override;
-
-    void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-
-private:
-
-};
-
-llvm::FunctionPass *createInstrumentationPass();
+llvm::Function *InstrumentFunctionForPathId(llvm::Function&, const PathInfo&, llvm::StringRef = "");
 
 } // End namespace llosl
 

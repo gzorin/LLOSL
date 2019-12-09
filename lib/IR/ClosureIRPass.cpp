@@ -185,7 +185,7 @@ void
 ClosureIRPass::Context::beginFunction() {
     assert(d_state == State::ClosureStorage);
 
-    d_closure_function = std::make_unique<ClosureFunction>(d_function, d_closure_storage_count);
+    d_closure_function = std::make_unique<ClosureFunction>(d_closure_storage_count);
 
     d_state = State::Function;
 }
