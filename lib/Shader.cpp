@@ -1320,6 +1320,41 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     d_parameters_md.reset(
         llvm::MDTuple::get(ll_context, parameter_mds));
 
+    function = processBXDFs(function);
+
+    d_main_function_md.reset(
+        llvm::ValueAsMetadata::get(function));
+
+    // All metadata:
+    d_md.reset(
+        llvm::MDTuple::get(ll_context, {
+            d_main_function_md.get(),
+            d_parameters_md.get(),
+            d_bxdf_md.get()
+        }));
+
+    auto shaders_md = d_module->getOrInsertNamedMetadata("llosl.shaders");
+    shaders_md->addOperand(d_md.get());
+
+    // Other optimizations:
+    auto mpm = std::make_unique<llvm::legacy::PassManager>();
+    mpm->add(llvm::createReassociatePass());
+    mpm->add(llvm::createSCCPPass());
+    mpm->add(llvm::createAggressiveDCEPass());
+    mpm->add(llvm::createCFGSimplificationPass());
+    mpm->add(llvm::createPromoteMemoryToRegisterPass());
+    mpm->run(*d_module);
+}
+
+Shader::~Shader() {
+}
+
+llvm::Function *
+Shader::processBXDFs(llvm::Function *function) {
+    auto& ll_context = d_context->getLLContext();
+
+    auto function_name = function->getName().str();
+
     // Instrument the function with path information, and collect information
     // about the BXDFs:
     auto closure_ir = new ClosureIRPass();
@@ -1327,12 +1362,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     auto instrumentation = new InstrumentationPass();
     auto bxdf = new BXDFPass();
 
-    auto fpm = std::make_unique<llvm::legacy::FunctionPassManager>(d_module.get());
-    fpm->add(closure_ir);
-    fpm->add(path_info);
-    fpm->add(instrumentation);
-    fpm->add(bxdf);
-    fpm->run(*function);
+    llvm::legacy::FunctionPassManager fpm(d_module.get());
+
+    fpm.add(closure_ir);
+    fpm.add(path_info);
+    fpm.add(instrumentation);
+    fpm.add(bxdf);
+    fpm.run(*function);
 
     // `function` was rewritten:
     function = d_module->getFunction(function_name);
@@ -1426,31 +1462,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     d_bxdf_md.reset(
         llvm::MDTuple::get(ll_context, bxdf_mds));
 
-    d_main_function_md.reset(
-        llvm::ValueAsMetadata::get(function));
-
-    // All metadata:
-    d_md.reset(
-        llvm::MDTuple::get(ll_context, {
-            d_main_function_md.get(),
-            d_parameters_md.get(),
-            d_bxdf_md.get()
-        }));
-
-    auto shaders_md = d_module->getOrInsertNamedMetadata("llosl.shaders");
-    shaders_md->addOperand(d_md.get());
-
-    // Other optimizations:
-    auto mpm = std::make_unique<llvm::legacy::PassManager>();
-    mpm->add(llvm::createReassociatePass());
-    mpm->add(llvm::createSCCPPass());
-    mpm->add(llvm::createAggressiveDCEPass());
-    mpm->add(llvm::createCFGSimplificationPass());
-    mpm->add(llvm::createPromoteMemoryToRegisterPass());
-    mpm->run(*d_module);
-}
-
-Shader::~Shader() {
+    return function;
 }
 
 void

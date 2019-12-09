@@ -104,6 +104,8 @@ private:
     Shader(LLOSLContextImpl&, OSL::ShaderGroup&);
     Shader(LLOSLContextImpl&, OSL::pvt::ShaderMaster&);
 
+    llvm::Function *processBXDFs(llvm::Function *);
+
     LLOSLContextImpl *d_context;
 
     std::unique_ptr<llvm::Module> d_module;
