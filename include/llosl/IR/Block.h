@@ -5,9 +5,12 @@
 #include <llosl/IR/Instruction.h>
 #include <llosl/IR/Value.h>
 
-#include <llvm/ADT/DenseSet.h>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/ilist.h>
 #include <llvm/ADT/ilist_node.h>
+#include <llvm/ADT/SmallVector.h>
+
+#include <list>
 
 namespace llvm {
 class BasicBlock;
@@ -23,37 +26,26 @@ class Block : public Value
 public:
 
     static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Block;
+        const auto kind = value->getKind();
+        return kind >= Value::ValueKind::Block && kind < Value::ValueKind::BlockMax;
     }
 
-    Block(const llvm::BasicBlock&, ClosureFunction * = nullptr);
     ~Block() override;
-
-    void dropAllReferences();
 
     void setParent(ClosureFunction *);
     ClosureFunction *getParent() const { return d_function; }
 
-    using InstListType = llvm::iplist<Instruction>;
-    static InstListType Block::*getSublistAccess(Instruction *) {
-        return &Block::d_insts;
-    }
+    struct Edge {
+        llvm::BasicBlock *from = nullptr, *to = nullptr;
+    };
 
-    InstListType&       getInstList()       { return d_insts; }
-    const InstListType& getInstList() const { return d_insts; }
-
-    InstListType::iterator       insts_begin()       { return d_insts.begin(); }
-    InstListType::iterator       insts_end()         { return d_insts.end();   }
-    InstListType::const_iterator insts_begin() const { return d_insts.begin(); }
-    InstListType::const_iterator insts_end()   const { return d_insts.end();   }
-
-    void insertSuccessor(Block *, const llvm::TerminatorInst *, unsigned);
+    void insertSuccessor(Block *, Edge);
     void eraseSuccessor(Block *);
 
     //
-    using TerminatorSetType = llvm::DenseSet<std::pair<const llvm::TerminatorInst *, unsigned> >;
+    using EdgesType = llvm::SmallVector<Edge, 2>;
 
-    using SuccSetType = llvm::DenseMap<Block *, TerminatorSetType>;
+    using SuccSetType = llvm::DenseMap<Block *, EdgesType>;
 
     SuccSetType& getSuccSet()             { return d_successors; }
     const SuccSetType& getSuccSet() const { return d_successors; }
@@ -64,7 +56,7 @@ public:
     SuccSetType::const_iterator succs_end()   const { return d_successors.end();   }
 
     //
-    using PredSetType = llvm::DenseMap<Block *, TerminatorSetType>;
+    using PredSetType = llvm::DenseMap<Block *, EdgesType>;
 
     PredSetType& getPredSet()             { return d_predecessors; }
     const PredSetType& getPredSet() const { return d_predecessors; }
@@ -74,21 +66,81 @@ public:
     PredSetType::const_iterator preds_begin() const { return d_predecessors.begin(); }
     PredSetType::const_iterator preds_end()   const { return d_predecessors.end();   }
 
+protected:
+
+    Block(Value::ValueKind, ClosureFunction * = nullptr);
+
+    ClosureFunction *d_function = nullptr;
+
+    PredSetType d_predecessors;
+    SuccSetType d_successors;
+};
+
+class ClosureBlock : public Block {
+public:
+
+    static bool classof(const Value* value) {
+        return value->getKind() == Value::ValueKind::ClosureBlock;
+    }
+
+    ClosureBlock(llvm::BasicBlock&, ClosureFunction * = nullptr);
+
+    void dropAllReferences();
+
+    using InstListType = llvm::iplist<Instruction>;
+    static InstListType ClosureBlock::*getSublistAccess(Instruction *) {
+        return &ClosureBlock::d_insts;
+    }
+
+    InstListType&       getInstList()       { return d_insts; }
+    const InstListType& getInstList() const { return d_insts; }
+
+    InstListType::iterator       insts_begin()       { return d_insts.begin(); }
+    InstListType::iterator       insts_end()         { return d_insts.end();   }
+    InstListType::const_iterator insts_begin() const { return d_insts.begin(); }
+    InstListType::const_iterator insts_end()   const { return d_insts.end();   }
+
     //
+    llvm::BasicBlock  *getLLBlock() { return &d_ll_block; }
     const llvm::Value *getLLValue() const override;
 
     void dump() const override;
 
 private:
 
-    const llvm::BasicBlock& d_ll_block;
-
-    ClosureFunction *d_function = nullptr;
+    llvm::BasicBlock& d_ll_block;
 
     InstListType d_insts;
 
-    PredSetType d_predecessors;
-    SuccSetType d_successors;
+    friend class NonClosureRegion;
+};
+
+class NonClosureRegion : public Block {
+public:
+
+    static bool classof(const Value* value) {
+        return value->getKind() == Value::ValueKind::NonClosureRegion;
+    }
+
+    using BlockListType = std::list<llvm::BasicBlock *>;
+
+    NonClosureRegion(BlockListType&&, ClosureFunction * = nullptr);
+
+    BlockListType&       getBlockList()       { return d_ll_blocks; }
+    const BlockListType& getBlockList() const { return d_ll_blocks; }
+
+    BlockListType::iterator       blocks_begin()       { return d_ll_blocks.begin(); }
+    BlockListType::iterator       blocks_end()         { return d_ll_blocks.end();   }
+    BlockListType::const_iterator blocks_begin() const { return d_ll_blocks.begin(); }
+    BlockListType::const_iterator blocks_end()   const { return d_ll_blocks.end();   }
+
+    const llvm::Value *getLLValue() const override;
+
+    void dump() const override;
+
+private:
+
+    BlockListType d_ll_blocks;
 };
 
 } // End namespace llosl

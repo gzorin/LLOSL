@@ -4,6 +4,7 @@
 #include <llosl/IR/InstrumentationPass.h>
 
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/Analysis/CFG.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <stack>
 
 namespace llosl {
 
@@ -47,20 +49,21 @@ InstrumentFunctionForPathId(llvm::Function& F, const PathInfo& path_info, llvm::
     std::for_each(
         function->blocks_begin(), function->blocks_end(),
         [&path_info, &ll_context, instrumented_function, path_id](auto& block) -> void {
-            auto ll_block = const_cast<llvm::BasicBlock *>(llvm::cast<llvm::BasicBlock>(block.getLLValue())); // Bah....
-
-            // Load the current value of `path_id` for this block:
-            auto current_path_id = new llvm::LoadInst(path_id, "llosl.cur.path_id.");
-            auto it = ll_block->getFirstInsertionPt();
-            ll_block->getInstList().insert(it, current_path_id);
-
-            // A block that returns from the function should just return the value of `path_id`:
+            // Handle blocks that return from the function:
             if (block.succs_begin() == block.succs_end()) {
-                auto terminator = ll_block->getTerminator();
-    //          assert(llvm::isa<llvm::ReturnInst>(terminator));
+                auto ll_block = llvm::cast<llvm::BasicBlock>(
+                    llvm::cast<ClosureBlock>(block).getLLBlock());
 
-                auto return_terminator = llvm::ReturnInst::Create(ll_context, current_path_id);
-                llvm::ReplaceInstWithInst(terminator, return_terminator);
+                // Load the current value of `path_id` for this block:
+                auto current_path_id = new llvm::LoadInst(path_id);
+                auto it = ll_block->getFirstInsertionPt();
+                ll_block->getInstList().insert(it, current_path_id);
+
+                auto terminator = ll_block->getTerminator();
+                assert (llvm::isa<llvm::ReturnInst>(terminator));
+
+                llvm::ReplaceInstWithInst(terminator,
+                    llvm::ReturnInst::Create(ll_context, current_path_id));
 
                 return;
             }
@@ -68,36 +71,30 @@ InstrumentFunctionForPathId(llvm::Function& F, const PathInfo& path_info, llvm::
             // Otherwise, insert a block that increments `path_id` by `edge_id`:
             std::for_each(
                 block.succs_begin(), block.succs_end(),
-                [&ll_context, &path_info, instrumented_function, path_id, current_path_id, &block](const auto& succs) -> void {
-                    auto succ = succs.first;
-                    const auto& terminators = succs.second;
+                [&ll_context, &path_info, instrumented_function, path_id, &block](auto& tmp) -> void {
+                    auto& [ succ, edges ] = tmp;
 
-                    auto ll_succ = const_cast<llvm::BasicBlock *>(llvm::cast<llvm::BasicBlock>(succ->getLLValue())); // Bah....
-
+                    //
                     auto edge_id = path_info.getEdgeIDForBlocks(&block, succ);
                     assert(edge_id);
 
-                    auto incr_block = llvm::BasicBlock::Create(ll_context, "llosl.incr.path_id.", instrumented_function);
-
-                    llvm::IRBuilder<> builder(ll_context);
-                    builder.SetInsertPoint(incr_block);
-
-                    auto int16_type = llvm::Type::getInt16Ty(ll_context);
-
-                    auto add_path_id = builder.CreateAdd(
-                        current_path_id, llvm::ConstantInt::get(int16_type, *edge_id, false));
-                    builder.CreateStore(add_path_id, path_id);
-                    builder.CreateBr(ll_succ);
-
-                    // Replace
                     std::for_each(
-                        terminators.begin(), terminators.end(),
-                        [ll_succ, incr_block](auto tmp) -> void {
-                            auto terminator = const_cast<llvm::TerminatorInst *>(tmp.first);
-                            auto successor_index = tmp.second;
-                            assert(terminator->getSuccessor(successor_index) == ll_succ);
+                        edges.begin(), edges.end(),
+                        [&ll_context, instrumented_function, path_id, edge_id](auto edge) -> void {
+                            auto incr_block = llvm::BasicBlock::Create(ll_context, "", instrumented_function);
 
-                            terminator->setSuccessor(successor_index, incr_block);
+                            llvm::IRBuilder<> builder(incr_block);
+
+                            auto int16_type = llvm::Type::getInt16Ty(ll_context);
+
+                            auto add_path_id = builder.CreateAdd(
+                                builder.CreateLoad(path_id),
+                                llvm::ConstantInt::get(int16_type, *edge_id, false));
+                            builder.CreateStore(add_path_id, path_id);
+                            builder.CreateBr(edge.to);
+
+                            edge.from->getTerminator()->setSuccessor(
+                                llvm::GetSuccessorNumber(edge.from, edge.to), incr_block);
                         });
                 });
         });

@@ -1,0 +1,32 @@
+//-*-C-*-
+surface
+closurecfg2
+(int which = 0,
+ float Kd = 1
+ [[  string help = "Diffuse scaling",
+     float min = 0, float max = 1 ]],
+ float Ks = 1
+ [[  string help = "Specular scaling",
+     float min = 0, float max = 1 ]],
+ float eta = 10
+ [[  string help = "Index of refraction (controls fresnel effect)",
+     float min = 1, float max = 100 ]],
+ color Cs = 1
+ [[  string help = "Base color",
+     float min = 0, float max = 1 ]]
+ )
+{
+  closure color alpha = diffuse(N);
+
+  float x = 0.0;
+
+  // branch to non closure blocks:
+  if (which) {
+    x = 1.0;
+  }
+  else {
+    x = 2.0;
+  }
+
+  Ci = alpha * x;
+}

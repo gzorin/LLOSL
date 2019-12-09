@@ -2,7 +2,7 @@
 #include <llosl/IR/ClosureFunction.h>
 #include <llosl/IR/Instruction.h>
 
-#include <llvm/ADT/DenseMapInfo.h>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/Optional.h>
 #include <llvm/ADT/SCCIterator.h>
@@ -14,8 +14,8 @@
 #include <llvm/IR/Instructions.h>
 
 #include <algorithm>
-#include <iostream>
 #include <list>
+#include <map>
 #include <set>
 #include <stack>
 
@@ -65,11 +65,11 @@ public:
     const ClosureFunction *function() const { return d_closure_function.get(); };
 
     //
-    void beginBlock(const llvm::BasicBlock&);
+    void beginBlock(llvm::BasicBlock&);
     void endBlock();
 
-    Block *block()             { return d_block; };
-    const Block *block() const { return d_block; };
+    ClosureBlock *block()             { return d_block; };
+    const ClosureBlock *block() const { return d_block; };
 
     //
     Reference                 *createReference(const llvm::CallInst&);
@@ -82,12 +82,14 @@ public:
     Store                     *createStore(const llvm::StoreInst&);
     Cast                      *createCast(const llvm::CastInst&);
     PHI                       *createPHI(const llvm::PHINode&);
+    NonClosureRegion          *createNonClosureRegion(std::list<llvm::BasicBlock *>&&);
     Return                    *createReturn(llvm::ReturnInst&);
 
     //
     void insertValue(Value *);
     void insertValue(const llvm::Value *, Value *);
     llvm::Optional<Value *> findValue(const llvm::Value *);
+    llvm::Optional<Block *> findBlock(const llvm::BasicBlock *);
 
 private:
 
@@ -98,7 +100,7 @@ private:
         Final
     };
 
-    Block *getBlock();
+    ClosureBlock *getBlock();
 
     State d_state = State::ClosureStorage;
 
@@ -120,8 +122,8 @@ private:
     std::unique_ptr<ClosureFunction> d_closure_function;
 
     // The block being processed:
-    const llvm::BasicBlock *d_ll_block = nullptr;
-    Block *d_block = nullptr;
+    llvm::BasicBlock *d_ll_block = nullptr;
+    ClosureBlock *d_block = nullptr;
 
     // Values that are known to represent closures:
     llvm::DenseMap<const llvm::Value *, Value *> d_value_map;
@@ -223,7 +225,7 @@ ClosureIRPass::Context::endFunction() {
 }
 
 void
-ClosureIRPass::Context::beginBlock(const llvm::BasicBlock& ll_block) {
+ClosureIRPass::Context::beginBlock(llvm::BasicBlock& ll_block) {
     assert(d_state == State::Function);
 
     d_ll_block = &ll_block;
@@ -241,12 +243,12 @@ ClosureIRPass::Context::endBlock() {
     d_state = State::Function;
 }
 
-Block *
+ClosureBlock *
 ClosureIRPass::Context::getBlock() {
     assert(d_state == State::Block);
 
     if (!d_block) {
-        d_block = new Block(*d_ll_block, d_closure_function.get());
+        d_block = new ClosureBlock(*d_ll_block, d_closure_function.get());
         insertValue(d_block);
     }
 
@@ -404,6 +406,20 @@ ClosureIRPass::Context::createPHI(const llvm::PHINode& phi_node) {
     return instruction;
 }
 
+NonClosureRegion *
+ClosureIRPass::Context::createNonClosureRegion(std::list<llvm::BasicBlock *>&& ll_blocks) {
+    auto closure_region = new NonClosureRegion(std::move(ll_blocks), d_closure_function.get());
+
+    // TODO: associate each of `ll_blocks` with `closure_region`
+    std::for_each(
+        closure_region->blocks_begin(), closure_region->blocks_end(),
+        [this, closure_region](auto ll_block) -> void {
+            insertValue(ll_block, closure_region);
+        });
+
+    return closure_region;
+}
+
 Return *
 ClosureIRPass::Context::createReturn(llvm::ReturnInst& return_instruction) {
     auto block = getBlock();
@@ -433,6 +449,17 @@ ClosureIRPass::Context::findValue(const llvm::Value *ll_value) {
     }
 }
 
+llvm::Optional<Block *>
+ClosureIRPass::Context::findBlock(const llvm::BasicBlock *ll_block) {
+    auto value = findValue(ll_block);
+    if (!value) {
+        return llvm::Optional<Block *>();
+    }
+
+    assert(llvm::isa<Block>(*value));
+    return llvm::Optional<Block *>(llvm::cast<Block>(*value));
+}
+
 ClosureIRPass::ClosureIRPass()
 : FunctionPass(ID) {
     llvm::initializeClosureIRPassPass(*llvm::PassRegistry::getPassRegistry());
@@ -446,179 +473,283 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
         getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo(),
         getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
 
-    // Determine closure storage:
+    enum class Color {
+        Grey, Black
+    };
+
+    // Sort blocks topologically:
+    llvm::DenseMap<llvm::BasicBlock *, Color> color;
+
+    std::list<llvm::BasicBlock *> ll_blocks;
+
     std::for_each(
-        context.blocks_begin(), context.blocks_end(),
-        [this, &context](const auto& scc) -> void {
-            if (context.loop_info().isLoopHeader(*scc.rbegin())) {
+        F.begin(), F.end(),
+        [&context, &color, &ll_blocks](auto& tmp) -> void {
+            auto ll_block = &tmp;
+
+            if (color.count(ll_block)) {
                 return;
             }
 
-            std::for_each(
-                scc.rbegin(), scc.rend(),
-                [this, &context](const auto block) -> void {
-                    std::for_each(
-                        block->begin(), block->end(),
-                        [this, &context](const auto& ll_instruction) -> void {
-                            auto call_instruction = llvm::dyn_cast<llvm::CallInst>(&ll_instruction);
-                            if (!call_instruction) {
-                                return;
-                            }
+            struct Frame {
+                llvm::BasicBlock *ll_block = nullptr;
+                bool back = false;
+            };
 
-                            auto called_function = call_instruction->getCalledValue();
+            std::stack<Frame> stack;
 
-                            if (called_function != context.llosl_closure_Ci_annotation &&
-                                called_function != context.llosl_closure_output_annotation &&
-                                called_function != context.llosl_closure_storage_annotation) {
-                                return;
-                            }
+            stack.push({ ll_block, false });
 
-                            auto storage = call_instruction->getOperand(0);
+            while (!stack.empty()) {
+                auto [ ll_block, back ] = stack.top();
+                stack.pop();
 
-                            if (called_function == context.llosl_closure_Ci_annotation) {
-                                context.insertClosureCi(llvm::MemoryLocation(storage, 1));
-                            }
-                            else if (called_function == context.llosl_closure_output_annotation) {
-                                context.insertClosureOutput(llvm::MemoryLocation(storage, 1));
-                            }
-                            else {
-                                context.insertClosureStorage(llvm::MemoryLocation(storage, 1));
-                            }
-                        });
-                });
-        });
+                if (back) {
+                    color[ll_block] = Color::Black;
 
-    // Create instructions:
-    context.beginFunction();
+                    ll_blocks.push_front(ll_block);
 
-    std::for_each(
-        context.blocks_begin(), context.blocks_end(),
-        [this, &context](const auto& scc) -> void {
-            if (context.loop_info().isLoopHeader(*scc.rbegin())) {
-                return;
-            }
-
-            std::for_each(
-                scc.rbegin(), scc.rend(),
-                [this, &context](const auto block) -> void {
-                    context.beginBlock(*block);
-
-                    std::for_each(
-                        block->begin(), block->end(),
-                        [this, &context](auto& ll_instruction) -> void {
-                            switch (ll_instruction.getOpcode()) {
-                            case llvm::Instruction::Call: {
-                                auto call_instruction = llvm::cast<llvm::CallInst>(&ll_instruction);
-                                auto called_function = call_instruction->getCalledValue();
-
-                                if (called_function == context.llosl_closure_output_annotation ||
-                                    called_function == context.llosl_closure_storage_annotation) {
-                                    context.createReference(*call_instruction);
-                                }
-                                else if (called_function == context.osl_allocate_closure_component) {
-                                    context.createAllocateComponent(*call_instruction);
-                                }
-                                else if (called_function == context.osl_allocate_weighted_closure_component) {
-                                    context.createAllocateWeightedComponent(*call_instruction);
-                                }
-                                else if (called_function == context.osl_add_closure_closure) {
-                                    context.createAddClosureClosure(*call_instruction);
-                                }
-                                else if (called_function == context.osl_mul_closure_color) {
-                                    context.createMulClosureColor(*call_instruction);
-                                }
-                                else if (called_function == context.osl_mul_closure_float) {
-                                    context.createMulClosureFloat(*call_instruction);
-                                }
-                            } break;
-                            case llvm::Instruction::Load: {
-                                auto load_instruction = llvm::cast<llvm::LoadInst>(&ll_instruction);
-                                context.createLoad(*load_instruction);
-                            } break;
-                            case llvm::Instruction::Store: {
-                                auto store_instruction = llvm::cast<llvm::StoreInst>(&ll_instruction);
-                                context.createStore(*store_instruction);
-                            } break;
-                            case llvm::Instruction::PtrToInt:
-			                case llvm::Instruction::IntToPtr:
-			                case llvm::Instruction::BitCast: {
-                                auto cast_instruction = llvm::dyn_cast<llvm::CastInst>(&ll_instruction);
-                                context.createCast(*cast_instruction);
-                            } break;
-                            case llvm::Instruction::PHI: {
-                                auto phi_node = llvm::cast<llvm::PHINode>(&ll_instruction);
-                                context.createPHI(*phi_node);
-                            } break;
-                            case llvm::Instruction::Ret: {
-                                auto return_instruction = llvm::cast<llvm::ReturnInst>(&ll_instruction);
-                                context.createReturn(*return_instruction);
-                            } break;
-                            default:
-                                break;
-                            };
-                        });
-
-                    context.endBlock();
-                });
-        });
-
-    {
-        struct Frame {
-            const llvm::BasicBlock *ll_block = nullptr;
-            Block *block = nullptr;
-            bool back = false;
-        };
-
-        std::stack<Frame> stack;
-
-        enum class Color {
-            White, Grey, Black
-        };
-
-        llvm::DenseMap<const llvm::BasicBlock *, Color> color;
-
-        std::for_each(
-            F.begin(), F.end(),
-            [&context, &stack, &color](const auto& ll_block) -> void {
-                color[&ll_block] = Color::White;
-
-                if (llvm::pred_begin(&ll_block) == llvm::pred_end(&ll_block)) {
-                    auto value = context.findValue(&ll_block);
-                    stack.push({ &ll_block, value ? llvm::cast<Block>(*value) : nullptr, false });
+                    continue;
                 }
-            });
 
-        while (!stack.empty()) {
-            auto ll_block = stack.top().ll_block;
-            auto block    = stack.top().block;
-            auto back     = stack.top().back;
-            stack.pop();
-
-            if (!back && color[ll_block] == Color::White) {
                 color[ll_block] = Color::Grey;
 
-                auto terminator = ll_block->getTerminator();
+                stack.push({ ll_block, true });
 
-                for (unsigned i = 0, n = terminator->getNumSuccessors(); i < n; ++i) {
-                    auto ll_succ = terminator->getSuccessor(i);
+                std::for_each(
+                    ll_block->begin(), ll_block->end(),
+                    [&context](const auto& ll_instruction) -> void {
+                        auto call_instruction = llvm::dyn_cast<llvm::CallInst>(&ll_instruction);
+                        if (!call_instruction) {
+                            return;
+                        }
 
-                    auto value = context.findValue(ll_succ);
-                    Block *succ = value ? llvm::cast<Block>(*value) : nullptr;
+                        auto called_function = call_instruction->getCalledValue();
 
-                    if (succ) {
-                        block->insertSuccessor(succ, terminator, i);
+                        if (called_function != context.llosl_closure_Ci_annotation &&
+                            called_function != context.llosl_closure_output_annotation &&
+                            called_function != context.llosl_closure_storage_annotation) {
+                            return;
+                        }
+
+                        auto storage = call_instruction->getOperand(0);
+
+                        if (called_function == context.llosl_closure_Ci_annotation) {
+                            context.insertClosureCi(llvm::MemoryLocation(storage, 1));
+                        }
+                        else if (called_function == context.llosl_closure_output_annotation) {
+                            context.insertClosureOutput(llvm::MemoryLocation(storage, 1));
+                        }
+                        else {
+                            context.insertClosureStorage(llvm::MemoryLocation(storage, 1));
+                        }
+                    });
+
+                for (auto it = llvm::succ_begin(ll_block), it_end = llvm::succ_end(ll_block); it != it_end; ++it) {
+                    auto ll_succ = *it;
+
+                    if (color.count(ll_succ)) {
+                        continue;
                     }
 
-                    if (color[ll_succ] == Color::White) {
-                        stack.push({ ll_succ, succ ? succ : block, false });
-                    }
+                    stack.push({ ll_succ, false });
                 }
             }
-            else if (back) {
-                color[ll_block] = Color::Black;
+        });
+
+    //
+    context.beginFunction();
+
+    // Create `ClosureBlocks`s:
+    std::for_each(
+        ll_blocks.begin(), ll_blocks.end(),
+        [&context](auto ll_block) -> void {
+            context.beginBlock(*ll_block);
+
+            std::for_each(
+                ll_block->begin(), ll_block->end(),
+                [&context](auto& ll_instruction) -> void {
+                    switch (ll_instruction.getOpcode()) {
+                    case llvm::Instruction::Call: {
+                        auto call_instruction = llvm::cast<llvm::CallInst>(&ll_instruction);
+                        auto called_function = call_instruction->getCalledValue();
+
+                        if (called_function == context.llosl_closure_Ci_annotation     ||
+                            called_function == context.llosl_closure_output_annotation ||
+                            called_function == context.llosl_closure_storage_annotation) {
+                            context.createReference(*call_instruction);
+                        }
+                        else if (called_function == context.osl_allocate_closure_component) {
+                            context.createAllocateComponent(*call_instruction);
+                        }
+                        else if (called_function == context.osl_allocate_weighted_closure_component) {
+                            context.createAllocateWeightedComponent(*call_instruction);
+                        }
+                        else if (called_function == context.osl_add_closure_closure) {
+                            context.createAddClosureClosure(*call_instruction);
+                        }
+                        else if (called_function == context.osl_mul_closure_color) {
+                            context.createMulClosureColor(*call_instruction);
+                        }
+                        else if (called_function == context.osl_mul_closure_float) {
+                            context.createMulClosureFloat(*call_instruction);
+                        }
+                    } break;
+                    case llvm::Instruction::Load: {
+                        auto load_instruction = llvm::cast<llvm::LoadInst>(&ll_instruction);
+                        context.createLoad(*load_instruction);
+                    } break;
+                    case llvm::Instruction::Store: {
+                        auto store_instruction = llvm::cast<llvm::StoreInst>(&ll_instruction);
+                        context.createStore(*store_instruction);
+                    } break;
+                    case llvm::Instruction::PtrToInt:
+                    case llvm::Instruction::IntToPtr:
+                    case llvm::Instruction::BitCast: {
+                        auto cast_instruction = llvm::dyn_cast<llvm::CastInst>(&ll_instruction);
+                        context.createCast(*cast_instruction);
+                    } break;
+                    case llvm::Instruction::PHI: {
+                        auto phi_node = llvm::cast<llvm::PHINode>(&ll_instruction);
+                        context.createPHI(*phi_node);
+                    } break;
+                    case llvm::Instruction::Ret: {
+                        auto return_instruction = llvm::cast<llvm::ReturnInst>(&ll_instruction);
+                        context.createReturn(*return_instruction);
+                    } break;
+                    default:
+                        break;
+                    };
+                });
+
+            context.endBlock();
+        });
+
+    // Create `NonClosureRegion`s:
+    color.clear();
+
+    std::for_each(
+        F.begin(), F.end(),
+        [&context, &color](auto& tmp) -> void {
+            auto ll_block = &tmp;
+
+            auto block = context.findBlock(ll_block);
+            if (block) {
+                return;
             }
-        }
-    }
+
+            if (color.count(ll_block)) {
+                return;
+            }
+
+            struct Frame {
+                llvm::BasicBlock *ll_block = nullptr;
+                bool back = false;
+            };
+
+            std::stack<Frame> stack;
+
+            std::list<llvm::BasicBlock *> nc_ll_blocks;
+
+            stack.push({ ll_block, false });
+
+            while (!stack.empty()) {
+                auto [ ll_block, back ] = stack.top();
+                stack.pop();
+
+                if (back) {
+                    color[ll_block] = Color::Black;
+
+                    auto block = context.findBlock(ll_block);
+                    if (!block) {
+                        nc_ll_blocks.push_front(ll_block);
+                    }
+
+                    continue;
+                }
+
+                color[ll_block] = Color::Grey;
+
+                stack.push({ ll_block, true });
+
+                for (auto it = llvm::succ_begin(ll_block), it_end = llvm::succ_end(ll_block); it != it_end; ++it) {
+                    auto ll_succ = *it;
+
+                    // Do not visit closure blocks:
+                    auto succ = context.findBlock(ll_succ);
+                    if (succ) {
+                        continue;
+                    }
+
+                    if (color.count(ll_succ)) {
+                        continue;
+                    }
+
+                    stack.push({ ll_succ, false });
+                }
+            }
+
+            if (!nc_ll_blocks.empty()) {
+                context.createNonClosureRegion(std::move(nc_ll_blocks));
+            }
+        });
+
+    // Connect all of the blocks:
+    color.clear();
+
+    std::for_each(
+        F.begin(), F.end(),
+        [&context, &color](auto& tmp) -> void {
+            auto ll_block = &tmp;
+
+            if (color.count(ll_block)) {
+                return;
+            }
+
+            struct Frame {
+                llvm::BasicBlock *ll_block = nullptr;
+                bool back = false;
+            };
+
+            std::stack<Frame> stack;
+
+            stack.push({ ll_block, false });
+
+            while (!stack.empty()) {
+                auto [ ll_block, back ] = stack.top();
+                stack.pop();
+
+                if (back) {
+                    color[ll_block] = Color::Black;
+
+                    continue;
+                }
+
+                color[ll_block] = Color::Grey;
+
+                stack.push({ ll_block, true });
+
+                auto block = context.findBlock(ll_block);
+                assert(block);
+
+                for (auto it = llvm::succ_begin(ll_block), it_end = llvm::succ_end(ll_block); it != it_end; ++it) {
+                    auto ll_succ = *it;
+
+                    auto succ = context.findBlock(ll_succ);
+                    assert(block);
+
+                    if (block != succ) {
+                        (*block)->insertSuccessor(*succ, { ll_block, ll_succ });
+                    }
+
+                    if (color.count(ll_succ)) {
+                        continue;
+                    }
+
+                    stack.push({ ll_succ, false });
+                }
+            }
+        });
 
     auto function = context.endFunction();
 

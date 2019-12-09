@@ -1327,7 +1327,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         llvm::ValueAsMetadata::get(function));
 
     processBXDFs();
-    optimize();
+    //optimize();
 
     // All metadata:
     d_md.reset(
@@ -1381,6 +1381,7 @@ Shader::processBXDFs() {
     d_bxdf_info = BXDFInfo::Create(*closure_ir, *path_info);
 
     unsigned path_count = d_bxdf_info->getPathCount();
+    std::cerr << path_count << " paths" << std::endl;
 
     d_bxdfs.reserve(path_count);
     auto it_bxdf = std::back_inserter(d_bxdfs);

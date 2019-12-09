@@ -19,10 +19,10 @@ class StoreInst;
 
 namespace llosl {
 
-class Block;
+class ClosureBlock;
 
 class Instruction : public User
-                  , public llvm::ilist_node_with_parent<Instruction, Block> {
+                  , public llvm::ilist_node_with_parent<Instruction, ClosureBlock> {
 public:
 
     static bool classof(const Value* value) {
@@ -30,16 +30,16 @@ public:
         return kind >= Value::ValueKind::Instruction && kind < Value::ValueKind::InstructionMax;
     }
 
-    void setParent(Block *);
-    Block *getParent() const { return d_block; }
+    void setParent(ClosureBlock *);
+    ClosureBlock *getParent() const { return d_block; }
 
 protected:
 
-    Instruction(Value::ValueKind, unsigned, Block * = nullptr);
+    Instruction(Value::ValueKind, unsigned, ClosureBlock * = nullptr);
 
 private:
 
-    Block *d_block = nullptr;
+    ClosureBlock *d_block = nullptr;
 };
 
 class Reference : public Instruction {
@@ -49,7 +49,7 @@ public:
         return value->getKind() == Value::ValueKind::Reference;
     }
 
-    Reference(const llvm::Value&, unsigned, Block * = nullptr);
+    Reference(const llvm::Value&, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
@@ -69,7 +69,7 @@ public:
         return value->getKind() == Value::ValueKind::Null;
     }
 
-    Null(const llvm::Value&, Block * = nullptr);
+    Null(const llvm::Value&, ClosureBlock * = nullptr);
 
     const llvm::Value *getLLValue() const override;
 
@@ -85,7 +85,7 @@ public:
         return value->getKind() == Value::ValueKind::Load;
     }
 
-    Load(const llvm::LoadInst&, unsigned, Block * = nullptr);
+    Load(const llvm::LoadInst&, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
@@ -105,7 +105,7 @@ public:
         return value->getKind() == Value::ValueKind::Store;
     }
 
-    Store(const llvm::StoreInst&, Value&, unsigned, Block * = nullptr);
+    Store(const llvm::StoreInst&, Value&, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
@@ -129,7 +129,7 @@ public:
         return value->getKind() == Value::ValueKind::AllocateComponent;
     }
 
-    AllocateComponent(const llvm::CallInst&, Block * = nullptr);
+    AllocateComponent(const llvm::CallInst&, ClosureBlock * = nullptr);
 
     unsigned getClosureID() const;
     unsigned getClosureSize() const;
@@ -148,7 +148,7 @@ public:
         return value->getKind() == Value::ValueKind::AllocateWeightedComponent;
     }
 
-    AllocateWeightedComponent(const llvm::CallInst&, Block * = nullptr);
+    AllocateWeightedComponent(const llvm::CallInst&, ClosureBlock * = nullptr);
 
     unsigned getClosureID() const;
     unsigned getClosureSize() const;
@@ -167,7 +167,7 @@ public:
         return value->getKind() == Value::ValueKind::AddClosureClosure;
     }
 
-    AddClosureClosure(const llvm::CallInst&, unsigned, unsigned, Block * = nullptr);
+    AddClosureClosure(const llvm::CallInst&, unsigned, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLHS() const { return d_lhs; }
 
@@ -189,7 +189,7 @@ public:
         return value->getKind() == Value::ValueKind::MulClosureColor;
     }
 
-    MulClosureColor(const llvm::CallInst&, unsigned, Block * = nullptr);
+    MulClosureColor(const llvm::CallInst&, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLHS() const { return d_lhs; }
 
@@ -208,7 +208,7 @@ public:
         return value->getKind() == Value::ValueKind::MulClosureFloat;
     }
 
-    MulClosureFloat(const llvm::CallInst&, unsigned, Block * = nullptr);
+    MulClosureFloat(const llvm::CallInst&, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLHS() const { return d_lhs; }
 
@@ -227,7 +227,7 @@ public:
         return value->getKind() == Value::ValueKind::Cast;
     }
 
-    Cast(const llvm::CastInst&, Value&, Block * = nullptr);
+    Cast(const llvm::CastInst&, Value&, ClosureBlock * = nullptr);
 
     Value *getOperand()             { return &d_rhs; }
     const Value *getOperand() const { return &d_rhs; }
@@ -248,7 +248,7 @@ public:
         return value->getKind() == Value::ValueKind::PHI;
     }
 
-    PHI(const llvm::PHINode&, llvm::ArrayRef<Value *>, Block * = nullptr);
+    PHI(const llvm::PHINode&, llvm::ArrayRef<Value *>, ClosureBlock * = nullptr);
 
     const llvm::Value *getLLValue() const override;
 
@@ -264,7 +264,7 @@ public:
         return value->getKind() == Value::ValueKind::Return;
     }
 
-    Return(llvm::ReturnInst&, Block * = nullptr);
+    Return(llvm::ReturnInst&, ClosureBlock * = nullptr);
 
     const llvm::Value *getLLValue() const override;
     void dump() const override;

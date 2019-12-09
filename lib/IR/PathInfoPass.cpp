@@ -18,7 +18,7 @@ void initializePathInfoPassPass(PassRegistry&);
 
 namespace llosl {
 
-PathInfo::PathInfo(std::shared_ptr<const ClosureFunction> ir)
+PathInfo::PathInfo(std::shared_ptr<ClosureFunction> ir)
 : d_ir(ir) {
 }
 
@@ -139,8 +139,8 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
 
             std::for_each(
                 block->succs_begin(), block->succs_end(),
-                [&stack, &color](const auto& succs) {
-                    auto succ = succs.first;
+                [&stack, &color](auto& tmp) {
+                    auto succ = tmp.first;
 
                     if (color[succ] == Color::White) {
                         stack.push({ succ, false });
@@ -166,8 +166,9 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
             // Inner block:
             std::for_each(
                 block->succs_begin(), block->succs_end(),
-                [&path_info, block](const auto& succs) -> void {
-                    auto succ = succs.first;
+                [&path_info, block](auto& tmp) -> void {
+                    auto succ = tmp.first;
+
                     path_info->insertEdge(block, succ);
                 });
         });

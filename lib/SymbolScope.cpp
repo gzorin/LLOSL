@@ -120,11 +120,12 @@ SymbolScope::add(const Symbol *s) {
             assert(value);
 
             auto address = allocate(s);
-            d_builder.CreateStore(value, address);
 
             if (t.is_closure()) {
                 llosl_closure_storage_annotation(address);
             }
+
+            d_builder.CreateStore(value, address);
         } break;
         case SymTypeConst: {
             auto value = d_type_scope.getConstant(t, s->data()).first;

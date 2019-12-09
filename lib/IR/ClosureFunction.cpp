@@ -19,7 +19,9 @@ ClosureFunction::~ClosureFunction() {
     std::for_each(
         d_blocks.begin(), d_blocks.end(),
         [](auto& block) -> void {
-            block.dropAllReferences();
+            if (llvm::isa<ClosureBlock>(&block)) {
+                llvm::cast<ClosureBlock>(&block)->dropAllReferences();
+            }
         });
 
     while (!d_blocks.empty()) {

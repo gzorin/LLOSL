@@ -33,7 +33,10 @@ public:
         InstructionMax,
         Output,
         Function,
-        Block
+        Block,
+        ClosureBlock,
+        NonClosureRegion,
+        BlockMax
     };
 
     Value(Value&) = delete;

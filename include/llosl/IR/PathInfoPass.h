@@ -18,9 +18,9 @@ class PathInfoPass;
 class PathInfo {
 public:
 
-    PathInfo(std::shared_ptr<const ClosureFunction>);
+    PathInfo(std::shared_ptr<ClosureFunction>);
 
-    std::shared_ptr<const ClosureFunction> getIR() const { return d_ir; }
+    std::shared_ptr<ClosureFunction> getIR() const { return d_ir; }
 
     using EdgeIDMap = llvm::DenseMap<const Block *, unsigned>;
 
@@ -61,7 +61,7 @@ private:
     void insertLeaf(const Block *);
     void insertEdge(const Block *, const Block *);
 
-    std::shared_ptr<const ClosureFunction> d_ir;
+    std::shared_ptr<ClosureFunction> d_ir;
     std::list<const Block *> d_block_list;
     BlockInfoMap d_block_info;
 
