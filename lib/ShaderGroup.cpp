@@ -88,6 +88,7 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
     d_data_type = shading_system.get_group_data_type(shader_group.get());
 #endif
 
+#if 0
     // Instrument the function with path information, and collect information
     // about the BXDFs:
     auto closure_ir = new ClosureIRPass();
@@ -217,13 +218,14 @@ ShaderGroup::ShaderGroup(BuilderImpl& builder)
             llvm::ConstantInt::get(llvm::Type::getInt32Ty(ll_context), 0), path_id}));
 
     builder.CreateRet(index); }
+#endif
 
 #if 0
     d_init_function_md.reset(
         llvm::ValueAsMetadata::get(shading_system.get_group_init_function(shader_group.get())));
-#endif
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(mapping_main_function));
+#endif
 
     // All metadata:
     d_md.reset(

@@ -1356,18 +1356,19 @@ Shader::processBXDFs() {
 
     // Instrument the function with path information, and collect information
     // about the BXDFs:
-    auto closure_ir = new ClosureIRPass();
-    auto path_info = new PathInfoPass();
+    auto closure_ir_pass = new ClosureIRPass();
+    auto path_info_pass = new PathInfoPass();
     auto instrumentation = new InstrumentationPass();
-    auto bxdf = new BXDFPass();
 
     llvm::legacy::FunctionPassManager fpm(d_module.get());
 
-    fpm.add(closure_ir);
-    fpm.add(path_info);
+    fpm.add(closure_ir_pass);
+    fpm.add(path_info_pass);
     fpm.add(instrumentation);
-    fpm.add(bxdf);
     fpm.run(*function);
+
+    auto closure_ir = closure_ir_pass->getIR();
+    auto path_info = path_info_pass->getPathInfo();
 
     // `function` was rewritten:
     function = d_module->getFunction(function_name);
@@ -1377,7 +1378,7 @@ Shader::processBXDFs() {
         llvm::ValueAsMetadata::get(function));
 
     // BXDFs:
-    d_bxdf_info = bxdf->getBXDFInfo();
+    d_bxdf_info = BXDFInfo::Create(*closure_ir, *path_info);
 
     unsigned path_count = d_bxdf_info->getPathCount();
 
@@ -1459,7 +1460,7 @@ Shader::processBXDFs() {
         builder.CreateGEP(path_id_to_index_value, std::vector<llvm::Value *>{
             path_id }));
 
-    builder.CreateRet(path_id); }
+    builder.CreateRet(index); }
 
     d_bxdf_md.reset(
         llvm::MDTuple::get(ll_context, bxdf_mds));

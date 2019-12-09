@@ -4,16 +4,17 @@
 
 #include <llosl/IR/BXDFAST.h>
 
-#include <llvm/Pass.h>
-
 #include <memory>
 
 namespace llosl {
 
-class BXDFPass;
+class ClosureFunction;
+class PathInfo;
 
 class BXDFInfo {
 public:
+
+    static std::unique_ptr<BXDFInfo> Create(const ClosureFunction&, const PathInfo&);
 
     unsigned getPathCount() const { return d_bxdfs.size(); }
 
@@ -32,25 +33,6 @@ private:
 
     friend class BXDFPass;
 };
-
-class BXDFPass : public llvm::FunctionPass {
-public:
-    static char ID;
-
-    BXDFPass();
-
-    std::shared_ptr<const BXDFInfo> getBXDFInfo() const { return d_bxdf_info; }
-
-    bool runOnFunction(llvm::Function &F) override;
-
-    void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
-
-private:
-
-    std::shared_ptr<const BXDFInfo> d_bxdf_info;
-};
-
-llvm::FunctionPass *createBXDF();
 
 } // End namespace llosl
 

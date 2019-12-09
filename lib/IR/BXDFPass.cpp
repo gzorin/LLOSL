@@ -24,32 +24,9 @@ BXDFInfo::addBXDFForPath(unsigned path_id, BXDFAST::NodeRef ast, unsigned heap_s
     d_max_heap_size = std::max(d_max_heap_size, heap_size);
 }
 
-} // End namespace llosl
-
-namespace llvm {
-
-void initializeBXDFPassPass(PassRegistry&);
-
-} // End namespace llvm
-
-namespace llosl {
-
-// BXDFPass:
-BXDFPass::BXDFPass() : FunctionPass(ID) {
-    llvm::initializeBXDFPassPass(*llvm::PassRegistry::getPassRegistry());
-}
-
-char BXDFPass::ID = 0;
-
-llvm::FunctionPass *createBXDFPass() {
-    return new BXDFPass();
-}
-
-bool BXDFPass::runOnFunction(llvm::Function &F) {
-    auto function = getAnalysis<ClosureIRPass>().getIR();
-    auto path_info = getAnalysis<PathInfoPass>().getPathInfo();
-
-    std::unique_ptr<BXDFInfo> bxdf_info(new BXDFInfo(path_info->getPathCount()));
+std::unique_ptr<BXDFInfo>
+BXDFInfo::Create(const ClosureFunction& function, const PathInfo& path_info) {
+    std::unique_ptr<BXDFInfo> bxdf_info(new BXDFInfo(path_info.getPathCount()));
 
     struct Frame {
         Frame(const ClosureFunction& function)
@@ -79,7 +56,7 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
 
     std::stack<Frame> stack;
 
-    stack.push(Frame(*function));
+    stack.push(Frame(function));
 
     while (!stack.empty()) {
         auto frame = std::move(stack.top());
@@ -89,7 +66,7 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
 
         std::for_each(
             block->insts_begin(), block->insts_end(),
-            [path_info, &bxdf_info, &frame](const auto& inst) -> void {
+            [&bxdf_info, &frame](const auto& inst) -> void {
                 switch(inst.getKind()) {
                 case Value::ValueKind::Reference: {
                     frame.values[&inst] = std::make_shared<BXDFAST::Node>(BXDFAST::Void());
@@ -152,28 +129,11 @@ bool BXDFPass::runOnFunction(llvm::Function &F) {
             [path_info, &stack, &frame](const auto& tmp) -> void {
                 auto succ = tmp.first;
 
-                stack.push(Frame(frame, *path_info, succ));
+                stack.push(Frame(frame, path_info, succ));
             });
     }
 
-    d_bxdf_info = std::move(bxdf_info);
-
-    return true;
-}
-
-void BXDFPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
-    AU.setPreservesAll();
-    AU.addRequired<ClosureIRPass>();
-    AU.addRequired<PathInfoPass>();
+    return bxdf_info;
 }
 
 } // End namespace llosl
-
-using llosl::BXDFPass;
-using namespace llvm;
-
-INITIALIZE_PASS_BEGIN(BXDFPass, "llosl-bxdf",
-                      "BXDFAST", false, false)
-INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_END(BXDFPass, "llosl-bxdf",
-                    "BXDFAST", false, false)
