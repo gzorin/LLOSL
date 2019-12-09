@@ -105,6 +105,7 @@ private:
     Shader(LLOSLContextImpl&, OSL::pvt::ShaderMaster&);
 
     llvm::Function *processBXDFs(llvm::Function *);
+    void optimize();
 
     LLOSLContextImpl *d_context;
 

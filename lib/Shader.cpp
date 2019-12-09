@@ -1321,6 +1321,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         llvm::MDTuple::get(ll_context, parameter_mds));
 
     function = processBXDFs(function);
+    optimize();
 
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(function));
@@ -1335,15 +1336,6 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     auto shaders_md = d_module->getOrInsertNamedMetadata("llosl.shaders");
     shaders_md->addOperand(d_md.get());
-
-    // Other optimizations:
-    auto mpm = std::make_unique<llvm::legacy::PassManager>();
-    mpm->add(llvm::createReassociatePass());
-    mpm->add(llvm::createSCCPPass());
-    mpm->add(llvm::createAggressiveDCEPass());
-    mpm->add(llvm::createCFGSimplificationPass());
-    mpm->add(llvm::createPromoteMemoryToRegisterPass());
-    mpm->run(*d_module);
 }
 
 Shader::~Shader() {
@@ -1463,6 +1455,18 @@ Shader::processBXDFs(llvm::Function *function) {
         llvm::MDTuple::get(ll_context, bxdf_mds));
 
     return function;
+}
+
+void
+Shader::optimize() {
+    llvm::legacy::PassManager mpm;
+
+    mpm.add(llvm::createReassociatePass());
+    mpm.add(llvm::createSCCPPass());
+    mpm.add(llvm::createAggressiveDCEPass());
+    mpm.add(llvm::createCFGSimplificationPass());
+    mpm.add(llvm::createPromoteMemoryToRegisterPass());
+    mpm.run(*d_module);
 }
 
 void
