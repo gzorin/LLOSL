@@ -104,7 +104,7 @@ private:
     Shader(LLOSLContextImpl&, OSL::ShaderGroup&);
     Shader(LLOSLContextImpl&, OSL::pvt::ShaderMaster&);
 
-    llvm::Function *processBXDFs(llvm::Function *);
+    void processBXDFs();
     void optimize();
 
     LLOSLContextImpl *d_context;
@@ -118,7 +118,7 @@ private:
     std::vector<const BXDF *> d_bxdfs;
 
     llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
-    llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_main_function_md;
+    llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_main_function_md, d_closure_function_md;
     llvm::TypedTrackingMDRef<llvm::MDTuple> d_parameters_md;
     llvm::TypedTrackingMDRef<llvm::MDTuple> d_bxdf_md;
 

@@ -27,6 +27,7 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 
 #include <osl_pvt.h>
 #include <oslexec_pvt.h>
@@ -459,7 +460,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     //
     llvm::IRBuilder<> builder(ll_context);
 
-    //
+    // Process parameters:
     d_parameter_count = shader_master.num_params();
     d_parameters = std::allocator<Parameter>().allocate(d_parameter_count);
 
@@ -507,6 +508,19 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
             *it_param_type++ = type;
         });
 
+    // Parameter metadata:
+    std::vector<llvm::Metadata *> parameter_mds;
+    std::transform(
+        d_parameters, d_parameters + d_parameter_count,
+        std::back_inserter(parameter_mds),
+            [](auto& parameter) -> llvm::Metadata * {
+                return parameter.d_md.get();
+        });
+
+    d_parameters_md.reset(
+        llvm::MDTuple::get(ll_context, parameter_mds));
+
+    // Create the function:
     auto function_name = shader_master.shadername();
 
     auto function = llvm::Function::Create(
@@ -1308,28 +1322,17 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     SortBasicBlocksTopologically(function);
 
-    // Parameter metadata:
-    std::vector<llvm::Metadata *> parameter_mds;
-    std::transform(
-        d_parameters, d_parameters + d_parameter_count,
-        std::back_inserter(parameter_mds),
-            [](auto& parameter) -> llvm::Metadata * {
-                return parameter.d_md.get();
-        });
-
-    d_parameters_md.reset(
-        llvm::MDTuple::get(ll_context, parameter_mds));
-
-    function = processBXDFs(function);
-    optimize();
-
     d_main_function_md.reset(
         llvm::ValueAsMetadata::get(function));
+
+    processBXDFs();
+    optimize();
 
     // All metadata:
     d_md.reset(
         llvm::MDTuple::get(ll_context, {
             d_main_function_md.get(),
+            d_closure_function_md.get(),
             d_parameters_md.get(),
             d_bxdf_md.get()
         }));
@@ -1341,9 +1344,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 Shader::~Shader() {
 }
 
-llvm::Function *
-Shader::processBXDFs(llvm::Function *function) {
+void
+Shader::processBXDFs() {
     auto& ll_context = d_context->getLLContext();
+
+    llvm::ValueToValueMapTy vmap;
+    auto function = llvm::CloneFunction(
+        llvm::cast<llvm::Function>(d_main_function_md->getValue()), vmap);
 
     auto function_name = function->getName().str();
 
@@ -1365,6 +1372,9 @@ Shader::processBXDFs(llvm::Function *function) {
     // `function` was rewritten:
     function = d_module->getFunction(function_name);
     assert(function);
+
+    d_closure_function_md.reset(
+        llvm::ValueAsMetadata::get(function));
 
     // BXDFs:
     d_bxdf_info = bxdf->getBXDFInfo();
@@ -1453,8 +1463,6 @@ Shader::processBXDFs(llvm::Function *function) {
 
     d_bxdf_md.reset(
         llvm::MDTuple::get(ll_context, bxdf_mds));
-
-    return function;
 }
 
 void
