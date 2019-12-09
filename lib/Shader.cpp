@@ -451,6 +451,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     //
     Library runtime_library(context, type_scope, *d_module);
 
+    runtime_library.declare("llosl_closure_Ci_annotation", "xC");
     runtime_library.declare("llosl_closure_output_annotation", "xC");
     runtime_library.declare("llosl_closure_storage_annotation", "xC");
 

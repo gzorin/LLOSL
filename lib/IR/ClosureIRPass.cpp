@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <iostream>
 #include <list>
+#include <set>
 #include <stack>
 
 namespace llvm {
@@ -34,7 +35,8 @@ public:
     llvm::LoopInfo&       loop_info()       { return d_loop_info; }
     const llvm::LoopInfo& loop_info() const { return d_loop_info; }
 
-    llvm::Function *llosl_closure_output_annotation         = nullptr,
+    llvm::Function *llosl_closure_Ci_annotation             = nullptr,
+                   *llosl_closure_output_annotation         = nullptr,
                    *llosl_closure_storage_annotation        = nullptr,
                    *osl_add_closure_closure                 = nullptr,
                    *osl_mul_closure_color                   = nullptr,
@@ -51,6 +53,8 @@ public:
 
     //
     unsigned insertClosureStorage(llvm::MemoryLocation);
+    unsigned insertClosureOutput(llvm::MemoryLocation);
+    unsigned insertClosureCi(llvm::MemoryLocation);
     llvm::Optional<unsigned> findClosureStorage(llvm::MemoryLocation) const;
 
     //
@@ -109,6 +113,8 @@ private:
     // Memory locations that are known to refer to closures:
     mutable llvm::DenseMap<llvm::MemoryLocation, unsigned> d_closure_locations;
     unsigned d_closure_storage_count = 0;
+    std::set<unsigned> d_closure_output_locations;
+    std::optional<unsigned> d_closure_Ci_location;
 
     // The currently evolving function:
     std::unique_ptr<ClosureFunction> d_closure_function;
@@ -131,6 +137,7 @@ ClosureIRPass::Context::Context(
 , d_function(function)
 , d_loop_info(loop_info)
 , d_aa(aa) {
+    llosl_closure_Ci_annotation             = d_module.getFunction("llosl_closure_Ci_annotation");
     llosl_closure_output_annotation         = d_module.getFunction("llosl_closure_output_annotation");
     llosl_closure_storage_annotation        = d_module.getFunction("llosl_closure_storage_annotation");
     osl_add_closure_closure                 = d_module.getFunction("osl_add_closure_closure");
@@ -155,6 +162,20 @@ ClosureIRPass::Context::insertClosureStorage(llvm::MemoryLocation location) {
     assert(tmp.second);
 
     return tmp.first->second;
+}
+
+unsigned
+ClosureIRPass::Context::insertClosureOutput(llvm::MemoryLocation location) {
+    return *d_closure_output_locations.insert(
+        insertClosureStorage(location)).first;
+}
+
+unsigned
+ClosureIRPass::Context::insertClosureCi(llvm::MemoryLocation location) {
+    assert (!d_closure_Ci_location);
+
+    d_closure_Ci_location = insertClosureOutput(location);
+    return *d_closure_Ci_location;
 }
 
 llvm::Optional<unsigned>
@@ -187,7 +208,7 @@ void
 ClosureIRPass::Context::beginFunction() {
     assert(d_state == State::ClosureStorage);
 
-    d_closure_function = std::make_unique<ClosureFunction>(d_closure_storage_count);
+    d_closure_function = std::make_unique<ClosureFunction>(d_closure_storage_count, d_closure_output_locations, d_closure_Ci_location);
 
     d_state = State::Function;
 }
@@ -446,14 +467,23 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
 
                             auto called_function = call_instruction->getCalledValue();
 
-                            if (called_function != context.llosl_closure_output_annotation &&
+                            if (called_function != context.llosl_closure_Ci_annotation &&
+                                called_function != context.llosl_closure_output_annotation &&
                                 called_function != context.llosl_closure_storage_annotation) {
                                 return;
                             }
 
                             auto storage = call_instruction->getOperand(0);
 
-                            context.insertClosureStorage(llvm::MemoryLocation(storage, 1));
+                            if (called_function == context.llosl_closure_Ci_annotation) {
+                                context.insertClosureCi(llvm::MemoryLocation(storage, 1));
+                            }
+                            else if (called_function == context.llosl_closure_output_annotation) {
+                                context.insertClosureOutput(llvm::MemoryLocation(storage, 1));
+                            }
+                            else {
+                                context.insertClosureStorage(llvm::MemoryLocation(storage, 1));
+                            }
                         });
                 });
         });

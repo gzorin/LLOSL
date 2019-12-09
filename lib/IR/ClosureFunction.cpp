@@ -6,9 +6,13 @@
 
 namespace llosl {
 
-ClosureFunction::ClosureFunction(unsigned closure_storage_count)
+ClosureFunction::ClosureFunction(unsigned closure_storage_count,
+                                 const std::set<unsigned>& closure_output_locations,
+                                 std::optional<unsigned> Ci_location)
 : Value(Value::ValueKind::Function)
-, d_closure_storage_count(closure_storage_count) {
+, d_closure_storage_count(closure_storage_count)
+, d_closure_output_locations(closure_output_locations)
+, d_Ci_location(Ci_location) {
 }
 
 ClosureFunction::~ClosureFunction() {

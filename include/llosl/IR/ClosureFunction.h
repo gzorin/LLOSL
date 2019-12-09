@@ -7,6 +7,8 @@
 
 #include <llvm/ADT/ilist.h>
 
+#include <set>
+
 namespace llvm {
 class Function;
 } // End namespace llvm
@@ -20,7 +22,7 @@ public:
         return value->getKind() == Value::ValueKind::Function;
     }
 
-    ClosureFunction(unsigned);
+    ClosureFunction(unsigned, const std::set<unsigned>&, std::optional<unsigned>);
     ~ClosureFunction() override;
 
     unsigned getClosureStorageCount() const { return d_closure_storage_count; }
@@ -38,6 +40,14 @@ public:
     BlockListType::const_iterator blocks_begin() const { return d_blocks.begin(); }
     BlockListType::const_iterator blocks_end()   const { return d_blocks.end();   }
 
+    using ClosureOutputLocationSet = std::set<unsigned>;
+
+    ClosureOutputLocationSet&       closure_output_locations()       { return d_closure_output_locations; }
+    const ClosureOutputLocationSet& closure_output_locations() const { return d_closure_output_locations; }
+
+    bool     hasCiLocation() const { return (bool)d_Ci_location; }
+    unsigned getCiLocation() const { return *d_Ci_location;      }
+
     //
     const llvm::Value *getLLValue() const override;
 
@@ -46,6 +56,8 @@ public:
 private:
 
     unsigned d_closure_storage_count;
+    ClosureOutputLocationSet d_closure_output_locations;
+    std::optional<unsigned> d_Ci_location;
 
     BlockListType d_blocks;
 };

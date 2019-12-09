@@ -39,6 +39,7 @@ SymbolScope::SymbolScope(LLOSLContextImpl& context, TypeScope& type_scope, Libra
     , d_builder(builder)
     , d_function(function)
     , d_shader_globals(shader_globals)
+    , llosl_closure_Ci_annotation(d_library_context["llosl_closure_Ci_annotation"])
     , llosl_closure_output_annotation(d_library_context["llosl_closure_output_annotation"])
     , llosl_closure_storage_annotation(d_library_context["llosl_closure_storage_annotation"]) {
 
@@ -76,7 +77,10 @@ SymbolScope::add(const Symbol *s) {
                 addReference(s, address);
 
                 if (t.is_closure()) {
-                    if (s->everwritten()) {
+                    if (name == "Ci") {
+                        llosl_closure_Ci_annotation(address);
+                    }
+                    else if (s->everwritten()) {
                         llosl_closure_output_annotation(address);
                     }
                     else {

@@ -47,7 +47,7 @@ private:
     llvm::IRBuilder<>& d_builder;
     llvm::Function *d_function = nullptr;
     llvm::Value *d_shader_globals = nullptr;
-    Library::CallingContext::Callable llosl_closure_output_annotation, llosl_closure_storage_annotation;
+    Library::CallingContext::Callable llosl_closure_Ci_annotation, llosl_closure_output_annotation, llosl_closure_storage_annotation;
 
     std::map<OSL::ustring, llvm::Argument *> d_arguments_by_name;
 

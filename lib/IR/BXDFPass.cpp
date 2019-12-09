@@ -66,7 +66,7 @@ BXDFInfo::Create(const ClosureFunction& function, const PathInfo& path_info) {
 
         std::for_each(
             block->insts_begin(), block->insts_end(),
-            [&bxdf_info, &frame](const auto& inst) -> void {
+            [&bxdf_info, &function, &frame](const auto& inst) -> void {
                 switch(inst.getKind()) {
                 case Value::ValueKind::Reference:
                 case Value::ValueKind::Null: {
@@ -116,9 +116,11 @@ BXDFInfo::Create(const ClosureFunction& function, const PathInfo& path_info) {
                     frame.values[&inst] = frame.values[cast_instruction->getOperand()];
                 } break;
                 case Value::ValueKind::Return: {
-                    // TODO: storage[0] happens to always be 'Ci', but all outputs should be
-                    // processed here, too:
-                    bxdf_info->addBXDFForPath(frame.path_id, frame.storage[0], frame.heap_size);
+                    if (!function.hasCiLocation()) {
+                        break;
+                    }
+
+                    bxdf_info->addBXDFForPath(frame.path_id, frame.storage[function.getCiLocation()], frame.heap_size);
                 } break;
                 default:
                     break;
