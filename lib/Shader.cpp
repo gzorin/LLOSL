@@ -525,11 +525,10 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     // Create the function:
     auto function_name = shader_master.shadername();
 
+    auto int16_type = llvm::Type::getInt16Ty(ll_context);
+
     auto function = llvm::Function::Create(
-        llvm::FunctionType::get(
-            llvm::Type::getVoidTy(ll_context),
-            param_types,
-            false),
+        llvm::FunctionType::get(int16_type, param_types, false),
         llvm::GlobalValue::ExternalLinkage, function_name, d_module.get());
 
     auto shader_globals = function->arg_begin();
@@ -579,7 +578,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
     // Create the 'exit' block, and populate it with a return instruction:
     auto exit_block = llvm::BasicBlock::Create(ll_context, "exit", function);
     builder.SetInsertPoint(exit_block);
-    builder.CreateRetVoid();
+    builder.CreateRet(llvm::ConstantInt::get(int16_type, 0));
     builder.ClearInsertionPoint();
 
     //
@@ -1354,6 +1353,7 @@ Shader::processBXDFs() {
 
     llvm::ValueToValueMapTy vmap;
     auto function = llvm::CloneFunction(main_function, vmap);
+    function->setName(llvm::formatv("{0}_closure", main_function->getName()));
 
     // Instrument the function with path information, and collect information
     // about the BXDFs:

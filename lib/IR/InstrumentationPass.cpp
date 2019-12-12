@@ -25,24 +25,13 @@ InstrumentFunctionForPathId(llvm::Function& F, const PathInfo& path_info, llvm::
 
     auto int16_type = llvm::Type::getInt16Ty(ll_context);
 
-    auto function_type = F.getFunctionType();
-
-    auto instrumented_function_type = llvm::FunctionType::get(
-        int16_type, function_type->params(), false);
-    auto instrumented_function = llvm::Function::Create(
-        instrumented_function_type, llvm::GlobalValue::ExternalLinkage, name.empty() ? F.getName() : name, module);
-
-    // Replace uses of arguments:
-    std::accumulate(
-        F.arg_begin(), F.arg_end(),
-        instrumented_function->arg_begin(),
-        [](llvm::Argument *instrumented_function_arg, llvm::Argument& function_arg) -> llvm::Argument * {
-            function_arg.replaceAllUsesWith(instrumented_function_arg++);
-            return instrumented_function_arg;
-        });
+    auto instrumented_function = &F;
 
     //
-    auto path_id_init_block = llvm::BasicBlock::Create(ll_context, "llosl.init.path_id", instrumented_function);
+    auto entry_block = &instrumented_function->getEntryBlock();
+
+    auto path_id_init_block = llvm::BasicBlock::Create(ll_context, "llosl.init.path_id", instrumented_function, entry_block);
+
     llvm::IRBuilder<> builder(ll_context);
     builder.SetInsertPoint(path_id_init_block);
 
@@ -50,14 +39,7 @@ InstrumentFunctionForPathId(llvm::Function& F, const PathInfo& path_info, llvm::
     auto init_path_id = builder.CreateStore(
         llvm::ConstantInt::get(int16_type, 0, false), path_id);
 
-    builder.CreateBr(&F.getEntryBlock());
-
-    // Move blocks:
-    for (auto it = F.begin(), it_end = F.end(); it != it_end; ) {
-        auto block = &*it++;
-        block->removeFromParent();
-        block->insertInto(instrumented_function);
-    }
+    builder.CreateBr(entry_block);
 
     // Instrument the blocks:
     auto function = path_info.getIR();
