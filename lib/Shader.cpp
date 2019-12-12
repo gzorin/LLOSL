@@ -209,33 +209,44 @@ SortBasicBlocksTopologically(llvm::Function *function) {
     std::stack<Frame> stack;
 
     enum class Color {
-        White, Grey, Black
+        Grey, Black
     };
 
-    std::list<llvm::BasicBlock *> blocks;
     llvm::DenseMap<llvm::BasicBlock *, Color> color;
-
-    std::for_each(
-        function->begin(), function->end(),
-        [&blocks, &color](auto& block) -> void {
-            blocks.push_back(&block);
-            color[&block] = Color::White;
-        });
 
     llvm::BasicBlock *insertion_point = nullptr;
 
-    for (auto block : blocks) {
-        if (color[block] != Color::White) {
-            continue;
-        }
+    std::for_each(
+        function->begin(), function->end(),
+        [function, &stack, &color, &insertion_point](auto& tmp) -> void {
+            auto block = &tmp;
 
-        stack.push({ block, false });
+            if (color.count(block)) {
+                return;
+            }
 
-        while (!stack.empty()) {
-            auto [ block, back ] = stack.top();
-            stack.pop();
+            stack.push({ block, false });
 
-            if (!back) {
+            while (!stack.empty()) {
+                auto [ block, back ] = stack.top();
+                stack.pop();
+
+                if (back) {
+                    color[block] = Color::Black;
+
+                    if (!insertion_point) {
+                        block->moveBefore(&function->front());
+                    }
+                    else {
+                        block->moveAfter(insertion_point);
+                    }
+
+                    insertion_point = block;
+
+                    continue;
+                }
+
+                //
                 color[block] = Color::Grey;
 
                 stack.push({ block, true });
@@ -243,27 +254,14 @@ SortBasicBlocksTopologically(llvm::Function *function) {
                 std::for_each(
                     llvm::pred_begin(block), llvm::pred_end(block),
                     [&stack, &color](auto pred) -> void {
-                        if (color[pred] != Color::White) {
+                        if (color.count(pred)) {
                             return;
                         }
 
                         stack.push({ pred, false });
                     });
             }
-            else {
-                color[block] = Color::Black;
-
-                if (!insertion_point) {
-                    block->moveBefore(&function->front());
-                }
-                else {
-                    block->moveAfter(insertion_point);
-                }
-
-                insertion_point = block;
-            }
-        }
-    }
+        });
 }
 
 llvm::Value *
@@ -368,13 +366,13 @@ Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
     std::stack<Frame> stack;
 
     enum class Color {
-        White, Grey, Black
+        Grey, Black
     };
 
     llvm::DenseMap<int, Color> color;
 
     for (int i = 0, n = shader_group.nlayers(); i < n; ++i) {
-        if (color[i] != Color::White) {
+        if (color.count(i)) {
             continue;
         }
 
@@ -386,23 +384,25 @@ Shader::Shader(LLOSLContextImpl& context, OSL::ShaderGroup& shader_group)
 
             auto layer = shader_group.layer(i);
 
-            if (!back) {
-                color[i] = Color::Grey;
-
-                stack.push({ i, true });
-
-                for (const auto& connection : layer->connections()) {
-                    if (color[connection.srclayer] != Color::White) {
-                        continue;
-                    }
-
-                    stack.push({ connection.srclayer, false });
-                }
-            }
-            else {
+            if (back) {
                 color[i] = Color::Black;
 
                 layers.push_back(layer);
+
+                continue;
+            }
+
+            //
+            color[i] = Color::Grey;
+
+            stack.push({ i, true });
+
+            for (const auto& connection : layer->connections()) {
+                if (color.count(connection.srclayer)) {
+                    continue;
+                }
+
+                stack.push({ connection.srclayer, false });
             }
         }
     }
