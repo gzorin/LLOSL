@@ -6,11 +6,10 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Error.h>
 
-#include <OSL/oslconfig.h>
+#include <OpenImageIO/typedesc.h>
 
 #include <memory>
 #include <system_error>
-
 namespace llvm {
 class Constant;
 class LLVMContext;
@@ -50,9 +49,9 @@ public:
   const llvm::LLVMContext&   getLLContext() const;
   llvm::LLVMContext&         getLLContext();
 
-  llvm::Type                *getLLVMType(const OSL::TypeDesc&, bool);
-  llvm::Constant            *getLLVMDefaultConstant(const OSL::TypeDesc&, bool);
-  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *, bool);
+  llvm::Type                *getLLVMType(const OIIO::TypeDesc&, bool);
+  llvm::Constant            *getLLVMDefaultConstant(const OIIO::TypeDesc&, bool);
+  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OIIO::TypeDesc&, const void *, bool);
 
   llvm::Expected<Shader *>   createShaderFromFile(llvm::StringRef);
 

@@ -52,72 +52,72 @@ LLOSLContextImpl::~LLOSLContextImpl() {
 
 template<typename ResultType, typename ScalarFunction, typename VectorFunction, typename MatrixFunction, typename ArrayFunction>
 std::optional<ResultType>
-processType(const OSL::TypeDesc& t, bool packed, ScalarFunction scalar, VectorFunction vector, MatrixFunction matrix, ArrayFunction array) {
-    OSL::TypeDesc::BASETYPE  basetype  = (OSL::TypeDesc::BASETYPE)t.basetype;
-    OSL::TypeDesc::AGGREGATE aggregate = (OSL::TypeDesc::AGGREGATE)t.aggregate;
+processType(const OIIO::TypeDesc& t, bool packed, ScalarFunction scalar, VectorFunction vector, MatrixFunction matrix, ArrayFunction array) {
+    OIIO::TypeDesc::BASETYPE  basetype  = (OIIO::TypeDesc::BASETYPE)t.basetype;
+    OIIO::TypeDesc::AGGREGATE aggregate = (OIIO::TypeDesc::AGGREGATE)t.aggregate;
     auto arraylen  = t.arraylen;
 
     if (arraylen > 0) {
-        return array(OSL::TypeDesc(basetype, aggregate), packed, arraylen);
+        return array(OIIO::TypeDesc(basetype, aggregate), packed, arraylen);
     }
 
-    if (aggregate != OSL::TypeDesc::SCALAR) {
+    if (aggregate != OIIO::TypeDesc::SCALAR) {
         unsigned n = 1;
-        OSL::TypeDesc::AGGREGATE column_aggregate = OSL::TypeDesc::SCALAR;
+        OIIO::TypeDesc::AGGREGATE column_aggregate = OIIO::TypeDesc::SCALAR;
 
         switch (aggregate) {
-            case OSL::TypeDesc::VEC2    : n = 2; break;
-            case OSL::TypeDesc::VEC3    : n = 3; break;
-            case OSL::TypeDesc::VEC4    : n = 4; break;
-            case OSL::TypeDesc::MATRIX33: n = 3; column_aggregate = OSL::TypeDesc::VEC3; break;
-            case OSL::TypeDesc::MATRIX44: n = 4; column_aggregate = OSL::TypeDesc::VEC4; break;
+            case OIIO::TypeDesc::VEC2    : n = 2; break;
+            case OIIO::TypeDesc::VEC3    : n = 3; break;
+            case OIIO::TypeDesc::VEC4    : n = 4; break;
+            case OIIO::TypeDesc::MATRIX33: n = 3; column_aggregate = OIIO::TypeDesc::VEC3; break;
+            case OIIO::TypeDesc::MATRIX44: n = 4; column_aggregate = OIIO::TypeDesc::VEC4; break;
             default: break;
         }
 
         switch (aggregate) {
-            case OSL::TypeDesc::VEC2:
-            case OSL::TypeDesc::VEC3:
-            case OSL::TypeDesc::VEC4:
-                return vector(OSL::TypeDesc(basetype), n, packed);
-            case OSL::TypeDesc::MATRIX33:
-            case OSL::TypeDesc::MATRIX44:
-                return matrix(OSL::TypeDesc(basetype, column_aggregate), packed, n);
+            case OIIO::TypeDesc::VEC2:
+            case OIIO::TypeDesc::VEC3:
+            case OIIO::TypeDesc::VEC4:
+                return vector(OIIO::TypeDesc(basetype), n, packed);
+            case OIIO::TypeDesc::MATRIX33:
+            case OIIO::TypeDesc::MATRIX44:
+                return matrix(OIIO::TypeDesc(basetype, column_aggregate), packed, n);
             default:
                 return std::optional<ResultType>();
         }
     }
 
-    return scalar(OSL::TypeDesc(basetype));
+    return scalar(OIIO::TypeDesc(basetype));
 }
 
 llvm::Type *
-LLOSLContextImpl::getLLVMType(const OSL::TypeDesc& t, bool packed) {
+LLOSLContextImpl::getLLVMType(const OIIO::TypeDesc& t, bool packed) {
     auto result = processType<llvm::Type *>(t, packed,
         [this](auto t) -> llvm::Type * {
             switch (t.basetype) {
-                case OSL::TypeDesc::NONE:
+                case OIIO::TypeDesc::NONE:
                     return llvm::Type::getVoidTy(d_llcontext);
-                case OSL::TypeDesc::CHAR:
-                case OSL::TypeDesc::UCHAR:
+                case OIIO::TypeDesc::CHAR:
+                case OIIO::TypeDesc::UCHAR:
                     return llvm::Type::getInt8Ty(d_llcontext);
-                case OSL::TypeDesc::SHORT:
-                case OSL::TypeDesc::USHORT:
+                case OIIO::TypeDesc::SHORT:
+                case OIIO::TypeDesc::USHORT:
                     return llvm::Type::getInt16Ty(d_llcontext);
-                case OSL::TypeDesc::INT:
-                case OSL::TypeDesc::UINT:
+                case OIIO::TypeDesc::INT:
+                case OIIO::TypeDesc::UINT:
                     return llvm::Type::getInt32Ty(d_llcontext);
-                case OSL::TypeDesc::LONGLONG:
-                case OSL::TypeDesc::ULONGLONG:
+                case OIIO::TypeDesc::LONGLONG:
+                case OIIO::TypeDesc::ULONGLONG:
                     return llvm::Type::getInt64Ty(d_llcontext);
-                case OSL::TypeDesc::HALF:
+                case OIIO::TypeDesc::HALF:
                     return llvm::Type::getHalfTy(d_llcontext);
-                case OSL::TypeDesc::FLOAT:
+                case OIIO::TypeDesc::FLOAT:
                     return llvm::Type::getFloatTy(d_llcontext);
-                case OSL::TypeDesc::DOUBLE:
+                case OIIO::TypeDesc::DOUBLE:
                     return llvm::Type::getDoubleTy(d_llcontext);
-                case OSL::TypeDesc::STRING:
+                case OIIO::TypeDesc::STRING:
                     return getLLVMStringType();
-                case OSL::TypeDesc::PTR:
+                case OIIO::TypeDesc::PTR:
                     return llvm::PointerType::get(
                         llvm::Type::getInt8Ty(d_llcontext), 0);
                 default:
@@ -146,38 +146,38 @@ LLOSLContextImpl::getLLVMType(const OSL::TypeDesc& t, bool packed) {
 }
 
 llvm::Constant *
-LLOSLContextImpl::getLLVMDefaultConstant(const OSL::TypeDesc& t, bool packed) {
+LLOSLContextImpl::getLLVMDefaultConstant(const OIIO::TypeDesc& t, bool packed) {
     llvm::Type *llvm_type = getLLVMType(t, packed);
 
-    auto getLLVMDefaultConstants = [this](unsigned n, const OSL::TypeDesc& t, bool packed = false) -> std::vector<llvm::Constant *> {
+    auto getLLVMDefaultConstants = [this](unsigned n, const OIIO::TypeDesc& t, bool packed = false) -> std::vector<llvm::Constant *> {
         return std::vector<llvm::Constant *>(n, getLLVMDefaultConstant(t, packed));
     };
 
     auto result = processType<llvm::Constant *>(t, packed,
         [this, llvm_type](auto t) -> llvm::Constant * {
             switch (t.basetype) {
-                case OSL::TypeDesc::CHAR:
-                case OSL::TypeDesc::SHORT:
-                case OSL::TypeDesc::INT:
-                case OSL::TypeDesc::LONGLONG:
+                case OIIO::TypeDesc::CHAR:
+                case OIIO::TypeDesc::SHORT:
+                case OIIO::TypeDesc::INT:
+                case OIIO::TypeDesc::LONGLONG:
                     return llvm::ConstantInt::get(llvm_type, 0, true);
-                case OSL::TypeDesc::UCHAR:
-                case OSL::TypeDesc::USHORT:
-                case OSL::TypeDesc::UINT:
-                case OSL::TypeDesc::ULONGLONG:
+                case OIIO::TypeDesc::UCHAR:
+                case OIIO::TypeDesc::USHORT:
+                case OIIO::TypeDesc::UINT:
+                case OIIO::TypeDesc::ULONGLONG:
                     return llvm::ConstantInt::get(llvm_type, 0, false);
-                case OSL::TypeDesc::HALF:
-                case OSL::TypeDesc::FLOAT:
-                case OSL::TypeDesc::DOUBLE:
+                case OIIO::TypeDesc::HALF:
+                case OIIO::TypeDesc::FLOAT:
+                case OIIO::TypeDesc::DOUBLE:
                     return llvm::ConstantFP::get(llvm_type, 0.0f);
-                case OSL::TypeDesc::STRING:
+                case OIIO::TypeDesc::STRING:
                     return llvm::ConstantStruct::get(
                         llvm::cast<llvm::StructType>(llvm_type),
                         std::vector<llvm::Constant *>{
                             llvm::ConstantInt::get(
                                 llvm::Type::getInt32Ty(d_llcontext), 0xFFFF)
                         });
-                case OSL::TypeDesc::PTR:
+                case OIIO::TypeDesc::PTR:
                     return llvm::ConstantPointerNull::get(
                         llvm::cast<llvm::PointerType>(llvm_type));
                 default:
@@ -217,12 +217,12 @@ LLOSLContextImpl::getLLVMDefaultConstant(const OSL::TypeDesc& t, bool packed) {
 }
 
 std::pair<llvm::Constant *, const void *>
-LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool packed) {
+LLOSLContextImpl::getLLVMConstant(const OIIO::TypeDesc& t, const void *p, bool packed) {
     using ResultType = std::pair<llvm::Constant *, const void *>;
 
     llvm::Type *llvm_type = getLLVMType(t, packed);
 
-    auto getLLVMConstants = [this](const void *p, unsigned n, const OSL::TypeDesc& t, bool packed = false) -> std::pair<std::vector<llvm::Constant *>, const void *> {
+    auto getLLVMConstants = [this](const void *p, unsigned n, const OIIO::TypeDesc& t, bool packed = false) -> std::pair<std::vector<llvm::Constant *>, const void *> {
         std::vector<llvm::Constant *> constants;
         constants.reserve(n);
 
@@ -238,63 +238,63 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool pa
     auto result = processType<ResultType>(t, packed,
         [this, p, llvm_type](auto t) -> ResultType {
             switch (t.basetype) {
-                case OSL::TypeDesc::CHAR: {
+                case OIIO::TypeDesc::CHAR: {
                     auto pdata = reinterpret_cast<const int8_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, true),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::SHORT: {
+                case OIIO::TypeDesc::SHORT: {
                     auto pdata = reinterpret_cast<const int16_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, true),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::INT: {
+                case OIIO::TypeDesc::INT: {
                     auto pdata = reinterpret_cast<const int32_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, true),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::LONGLONG: {
+                case OIIO::TypeDesc::LONGLONG: {
                     auto pdata = reinterpret_cast<const int64_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, true),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::UCHAR: {
+                case OIIO::TypeDesc::UCHAR: {
                     auto pdata = reinterpret_cast<const uint8_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, false),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::USHORT: {
+                case OIIO::TypeDesc::USHORT: {
                     auto pdata = reinterpret_cast<const uint16_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, false),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::UINT: {
+                case OIIO::TypeDesc::UINT: {
                     auto pdata = reinterpret_cast<const uint32_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, false),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::ULONGLONG: {
+                case OIIO::TypeDesc::ULONGLONG: {
                     auto pdata = reinterpret_cast<const uint64_t *>(p);
                     return {
                         llvm::ConstantInt::get(llvm_type, *pdata, false),
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::HALF: {
+                case OIIO::TypeDesc::HALF: {
                     auto pdata = reinterpret_cast<const uint16_t *>(p);
                     return {
                         llvm::ConstantFP::get(d_llcontext,
@@ -302,7 +302,7 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool pa
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::FLOAT: {
+                case OIIO::TypeDesc::FLOAT: {
                     auto pdata = reinterpret_cast<const uint32_t *>(p);
                     return {
                         llvm::ConstantFP::get(d_llcontext,
@@ -310,7 +310,7 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool pa
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::DOUBLE: {
+                case OIIO::TypeDesc::DOUBLE: {
                     auto pdata = reinterpret_cast<const uint64_t *>(p);
                     return {
                         llvm::ConstantFP::get(d_llcontext,
@@ -318,7 +318,7 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool pa
                         ++pdata
                     };
                 }
-                case OSL::TypeDesc::STRING:
+                case OIIO::TypeDesc::STRING:
                     // TODO
                     return {
                         llvm::ConstantStruct::get(
@@ -329,7 +329,7 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool pa
                             }),
                         p
                     };
-                case OSL::TypeDesc::PTR:
+                case OIIO::TypeDesc::PTR:
                     // TODO
                     return {
                         llvm::ConstantPointerNull::get(
@@ -381,25 +381,25 @@ LLOSLContextImpl::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool pa
 }
 
 bool
-LLOSLContextImpl::isTypePassedByReference(const OSL::TypeDesc& t) const {
-    OSL::TypeDesc::BASETYPE  basetype  = (OSL::TypeDesc::BASETYPE)t.basetype;
-    OSL::TypeDesc::AGGREGATE aggregate = (OSL::TypeDesc::AGGREGATE)t.aggregate;
+LLOSLContextImpl::isTypePassedByReference(const OIIO::TypeDesc& t) const {
+    OIIO::TypeDesc::BASETYPE  basetype  = (OIIO::TypeDesc::BASETYPE)t.basetype;
+    OIIO::TypeDesc::AGGREGATE aggregate = (OIIO::TypeDesc::AGGREGATE)t.aggregate;
     auto arraylen  = t.arraylen;
 
     return arraylen > 0 ||
-           aggregate == OSL::TypeDesc::MATRIX33 || aggregate == OSL::TypeDesc::MATRIX44 ||
-           basetype == OSL::TypeDesc::STRING;
+           aggregate == OIIO::TypeDesc::MATRIX33 || aggregate == OIIO::TypeDesc::MATRIX44 ||
+           basetype == OIIO::TypeDesc::STRING;
 }
 
 llvm::Type *
-LLOSLContextImpl::getLLVMTypeForArgument(const OSL::TypeDesc& t, bool packed) {
-    OSL::TypeDesc::BASETYPE  basetype  = (OSL::TypeDesc::BASETYPE)t.basetype;
-    OSL::TypeDesc::AGGREGATE aggregate = (OSL::TypeDesc::AGGREGATE)t.aggregate;
+LLOSLContextImpl::getLLVMTypeForArgument(const OIIO::TypeDesc& t, bool packed) {
+    OIIO::TypeDesc::BASETYPE  basetype  = (OIIO::TypeDesc::BASETYPE)t.basetype;
+    OIIO::TypeDesc::AGGREGATE aggregate = (OIIO::TypeDesc::AGGREGATE)t.aggregate;
     auto arraylen  = t.arraylen;
 
     if (arraylen > 0 ||
-        aggregate == OSL::TypeDesc::MATRIX33 || aggregate == OSL::TypeDesc::MATRIX44 ||
-        basetype == OSL::TypeDesc::STRING) {
+        aggregate == OIIO::TypeDesc::MATRIX33 || aggregate == OIIO::TypeDesc::MATRIX44 ||
+        basetype == OIIO::TypeDesc::STRING) {
         return llvm::PointerType::get(getLLVMType(t, packed), 0);
     }
 
@@ -436,30 +436,30 @@ LLOSLContextImpl::getLLVMClosureType() {
 
 llvm::StructType *
 LLOSLContextImpl::getShaderGlobalsType() {
-    static const std::vector<OSL::TypeDesc> types = {
-        OSL::TypeDesc::TypePoint,          // P
-        OSL::TypeDesc::TypePoint,          // dPdx
-        OSL::TypeDesc::TypePoint,          // dPdy
-        OSL::TypeDesc::TypePoint,          // dPdz
-        OSL::TypeDesc::TypeVector,         // I
-        OSL::TypeDesc::TypeVector,         // dIdx
-        OSL::TypeDesc::TypeVector,         // dIdy
-        OSL::TypeDesc::TypeNormal,         // N
-        OSL::TypeDesc::TypeNormal,         // Ng
-        OSL::TypeDesc::TypeFloat,          // u
-        OSL::TypeDesc::TypeFloat,          // dudx
-        OSL::TypeDesc::TypeFloat,          // dudy
-        OSL::TypeDesc::TypeFloat,          // v
-        OSL::TypeDesc::TypeFloat,          // dvdx
-        OSL::TypeDesc::TypeFloat,          // dvdy
-        OSL::TypeDesc::TypeVector,         // dPdu
-        OSL::TypeDesc::TypeVector,         // dPdv
-        OSL::TypeDesc::TypeFloat,          // time
-        OSL::TypeDesc::TypeFloat,          // dtime
-        OSL::TypeDesc::TypeVector,         // dPdtime
-        OSL::TypeDesc(OSL::TypeDesc::PTR), // context
-        OSL::TypeDesc::TypeMatrix,         // object2common
-        OSL::TypeDesc::TypeMatrix,         // shader2common
+    static const std::vector<OIIO::TypeDesc> types = {
+        OIIO::TypeDesc::TypePoint,          // P
+        OIIO::TypeDesc::TypePoint,          // dPdx
+        OIIO::TypeDesc::TypePoint,          // dPdy
+        OIIO::TypeDesc::TypePoint,          // dPdz
+        OIIO::TypeDesc::TypeVector,         // I
+        OIIO::TypeDesc::TypeVector,         // dIdx
+        OIIO::TypeDesc::TypeVector,         // dIdy
+        OIIO::TypeDesc::TypeNormal,         // N
+        OIIO::TypeDesc::TypeNormal,         // Ng
+        OIIO::TypeDesc::TypeFloat,          // u
+        OIIO::TypeDesc::TypeFloat,          // dudx
+        OIIO::TypeDesc::TypeFloat,          // dudy
+        OIIO::TypeDesc::TypeFloat,          // v
+        OIIO::TypeDesc::TypeFloat,          // dvdx
+        OIIO::TypeDesc::TypeFloat,          // dvdy
+        OIIO::TypeDesc::TypeVector,         // dPdu
+        OIIO::TypeDesc::TypeVector,         // dPdv
+        OIIO::TypeDesc::TypeFloat,          // time
+        OIIO::TypeDesc::TypeFloat,          // dtime
+        OIIO::TypeDesc::TypeVector,         // dPdtime
+        OIIO::TypeDesc(OIIO::TypeDesc::PTR), // context
+        OIIO::TypeDesc::TypeMatrix,         // object2common
+        OIIO::TypeDesc::TypeMatrix,         // shader2common
     };
 
     if (!d_shader_globals_type) {
@@ -812,17 +812,17 @@ LLOSLContext::getLLContext() {
 }
 
 llvm::Type *
-LLOSLContext::getLLVMType(const OSL::TypeDesc& t, bool packed) {
+LLOSLContext::getLLVMType(const OIIO::TypeDesc& t, bool packed) {
     return d_impl->getLLVMType(t, packed);
 }
 
 llvm::Constant *
-LLOSLContext::getLLVMDefaultConstant(const OSL::TypeDesc& t, bool packed) {
+LLOSLContext::getLLVMDefaultConstant(const OIIO::TypeDesc& t, bool packed) {
     return d_impl->getLLVMDefaultConstant(t, packed);
 }
 
 std::pair<llvm::Constant *, const void *>
-LLOSLContext::getLLVMConstant(const OSL::TypeDesc& t, const void *p, bool packed) {
+LLOSLContext::getLLVMConstant(const OIIO::TypeDesc& t, const void *p, bool packed) {
     return d_impl->getLLVMConstant(t, p, packed);
 }
 

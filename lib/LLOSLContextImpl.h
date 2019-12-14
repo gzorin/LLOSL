@@ -57,12 +57,12 @@ public:
   llvm::LLVMContext&               getLLContext()       { return d_llcontext; }
 
   //
-  llvm::Type                      *getLLVMType(const OSL::TypeDesc&, bool);
-  llvm::Constant                  *getLLVMDefaultConstant(const OSL::TypeDesc&, bool);
-  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OSL::TypeDesc&, const void *, bool);
+  llvm::Type                      *getLLVMType(const OIIO::TypeDesc&, bool);
+  llvm::Constant                  *getLLVMDefaultConstant(const OIIO::TypeDesc&, bool);
+  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OIIO::TypeDesc&, const void *, bool);
 
-  bool                             isTypePassedByReference(const OSL::TypeDesc&) const;
-  llvm::Type                      *getLLVMTypeForArgument(const OSL::TypeDesc&, bool);
+  bool                             isTypePassedByReference(const OIIO::TypeDesc&) const;
+  llvm::Type                      *getLLVMTypeForArgument(const OIIO::TypeDesc&, bool);
 
   llvm::StructType                *getLLVMStringType();
 
