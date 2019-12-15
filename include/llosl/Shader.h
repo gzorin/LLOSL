@@ -5,8 +5,6 @@
 #include <llvm/ADT/ilist_node.h>
 #include <llvm/IR/TrackingMDRef.h>
 
-#include <OSL/oslexec.h>
-
 #include <OpenImageIO/typedesc.h>
 #include <OpenImageIO/ustring.h>
 
@@ -18,12 +16,14 @@ class Module;
 class Type;
 } // End namespace llvm
 
-OSL_NAMESPACE_ENTER
+namespace OSL_v1_10 {
 class ShaderGroup;
 namespace pvt {
 class ShaderMaster;
 } // End namespace OSL::pvt
-OSL_NAMESPACE_EXIT
+} // End namespace OSL_v1_10
+
+namespace OSL = OSL_v1_10;
 
 namespace llosl {
 
