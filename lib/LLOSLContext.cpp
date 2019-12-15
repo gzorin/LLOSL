@@ -816,6 +816,11 @@ LLOSLContext::getLLVMType(const OIIO::TypeDesc& t, bool packed) {
     return d_impl->getLLVMType(t, packed);
 }
 
+llvm::StructType *
+LLOSLContext::getShaderGlobalsType() {
+    return d_impl->getShaderGlobalsType();
+}
+
 llvm::Constant *
 LLOSLContext::getLLVMDefaultConstant(const OIIO::TypeDesc& t, bool packed) {
     return d_impl->getLLVMDefaultConstant(t, packed);

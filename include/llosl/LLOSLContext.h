@@ -13,6 +13,7 @@
 namespace llvm {
 class Constant;
 class LLVMContext;
+class StructType;
 class Type;
 } // End namespace llvm
 
@@ -50,6 +51,8 @@ public:
   llvm::LLVMContext&         getLLContext();
 
   llvm::Type                *getLLVMType(const OIIO::TypeDesc&, bool);
+  llvm::StructType          *getShaderGlobalsType();
+
   llvm::Constant            *getLLVMDefaultConstant(const OIIO::TypeDesc&, bool);
   std::pair<llvm::Constant *, const void *> getLLVMConstant(const OIIO::TypeDesc&, const void *, bool);
 
