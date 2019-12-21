@@ -1556,7 +1556,7 @@ Shader::Parameter::index() const {
 llvm::StringRef
 Shader::Parameter::name(unsigned index) const {
     auto name = llvm::cast<llvm::MDNode>(d_md->getOperand(2).get());
-    auto name_part = llvm::cast<llvm::MDString>(d_md->getOperand(index).get());
+    auto name_part = llvm::cast<llvm::MDString>(name->getOperand(index).get());
 
     return name_part->getString();
 }
