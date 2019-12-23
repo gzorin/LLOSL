@@ -12,6 +12,7 @@
 #include <llosl/IR/InstrumentationPass.h>
 #include <llosl/IR/PathInfoPass.h>
 #include <llosl/Closure.h>
+#include <llosl/IRBuilder.h>
 #include <llosl/Shader.h>
 
 #include <llvm/ADT/APInt.h>
@@ -1291,12 +1292,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                             case OSL::TypeDesc::VEC2:
                             case OSL::TypeDesc::VEC3:
                             case OSL::TypeDesc::VEC4:
-                                for (unsigned i = 0; i < n; ++i) {
-                                    builder.CreateStore(
-                                        builder.CreateExtractElement(rvalue, i),
-                                        builder.CreateConstInBoundsGEP2_32(nullptr, lvalue, 0, i));
-                                }
-
+                                CreateStorePacked(builder, rvalue, lvalue);
                                 continue;
                             case OSL::TypeDesc::MATRIX33:
                             case OSL::TypeDesc::MATRIX44:
