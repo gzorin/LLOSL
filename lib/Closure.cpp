@@ -41,7 +41,7 @@ Closure::create(LLOSLContextImpl& context_impl, llvm::StringRef name, unsigned i
             return context_impl.getLLVMType(t, true);
         });
 
-    auto params_type_name = llvm::formatv("OSL::{0}", closure->d_name).str();
+    auto params_type_name = llvm::formatv("struct.OSL::{0}", closure->d_name).str();
     closure->d_params_type = llvm::StructType::create(context_impl.getLLContext(), param_types, params_type_name);
 
     //

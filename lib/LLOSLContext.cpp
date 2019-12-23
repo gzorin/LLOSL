@@ -414,7 +414,7 @@ LLOSLContextImpl::getLLVMStringType() {
             std::vector<llvm::Type *>{
                 llvm::Type::getInt32Ty(d_llcontext)
             },
-            "OSL::String");
+            "struct.llosl::String");
     }
 
     return d_string_type;
@@ -428,7 +428,7 @@ LLOSLContextImpl::getLLVMClosureType() {
             std::vector<llvm::Type *>{
                 getLLVMClosurePointerType()
             },
-            "OSL::Closure");
+            "struct.llosl::Closure");
     }
 
     return d_closure_type;
@@ -476,7 +476,7 @@ LLOSLContextImpl::getShaderGlobalsType() {
         llvm_types.push_back(getLLVMClosureType());
 
         d_shader_globals_type = llvm::StructType::create(
-            d_llcontext, llvm_types, "OSL::ShaderGlobals");
+            d_llcontext, llvm_types, "struct.llosl::ShaderGlobals");
     }
 
     return d_shader_globals_type;
