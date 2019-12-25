@@ -3,7 +3,6 @@
 #include <llosl/Closure.h>
 #include <llosl/LLOSLContext.h>
 #include <llosl/Shader.h>
-#include <llosl/ShaderGroup.h>
 #include <llosl/UberBXDF.h>
 
 #include <llvm/ADT/APFloat.h>
@@ -47,7 +46,6 @@ LLOSLContextImpl::~LLOSLContextImpl() {
     d_uber_bxdfs.clear();
     d_bxdfs.clear();
     d_shaders.clear();
-    d_shader_groups.clear();
 }
 
 template<typename ResultType, typename ScalarFunction, typename VectorFunction, typename MatrixFunction, typename ArrayFunction>
@@ -731,16 +729,6 @@ LLOSLContextImpl::addUberBXDF(UberBXDF *uber_bxdf) {
 void
 LLOSLContextImpl::removeUberBXDF(UberBXDF *uber_bxdf) {
     d_uber_bxdfs.remove(uber_bxdf);
-}
-
-void
-LLOSLContextImpl::addShaderGroup(ShaderGroup *shader_group) {
-    d_shader_groups.push_back(shader_group);
-}
-
-void
-LLOSLContextImpl::removeShaderGroup(ShaderGroup *shader_group) {
-    d_shader_groups.remove(shader_group);
 }
 
 // Interface:

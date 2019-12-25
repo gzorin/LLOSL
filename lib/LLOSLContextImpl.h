@@ -141,16 +141,6 @@ public:
   void                             addUberBXDF(UberBXDF *);
   void                             removeUberBXDF(UberBXDF *);
 
-  //
-  using ShaderGroupListType = LLOSLContext::ShaderGroupListType;
-
-  static ShaderGroupListType LLOSLContextImpl::*getSublistAccess(ShaderGroup *) {
-      return &LLOSLContextImpl::d_shader_groups;
-  }
-
-  void                             addShaderGroup(ShaderGroup *);
-  void                             removeShaderGroup(ShaderGroup *);
-
 private:
 
   void registerClosures();
@@ -182,7 +172,6 @@ private:
   unsigned d_bxdf_address_space = 0;
   BXDFListType d_bxdfs;
   UberBXDFListType d_uber_bxdfs;
-  ShaderGroupListType d_shader_groups;
 
   UberBXDF *d_uber_bxdf = nullptr;
 

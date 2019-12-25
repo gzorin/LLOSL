@@ -8,7 +8,6 @@ add_library(LLOSL STATIC
   LLOSLContext.cpp
   OSLErrorHandler.cpp
   Shader.cpp
-  ShaderGroup.cpp
   SymbolScope.cpp
   TypeScope.cpp
   UberBXDF.cpp)

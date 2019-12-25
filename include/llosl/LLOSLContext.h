@@ -23,7 +23,6 @@ class Builder;
 class BXDF;
 class LLOSLContextImpl;
 class Shader;
-class ShaderGroup;
 class UberBXDF;
 
 class LLOSLContext {
@@ -39,7 +38,6 @@ public:
 
   using BXDFListType = llvm::ilist<BXDF>;
   using UberBXDFListType = llvm::ilist<UberBXDF>;
-  using ShaderGroupListType = llvm::ilist<ShaderGroup>;
 
   static LLOSLContext       *Get(llvm::LLVMContext *);
   static const LLOSLContext *Get(const llvm::LLVMContext *);
