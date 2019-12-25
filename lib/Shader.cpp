@@ -1323,7 +1323,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         llvm::ValueAsMetadata::get(function));
 
     processBXDFs();
-    //optimize();
+    optimize();
 
     // All metadata:
     d_md.reset(
@@ -1463,7 +1463,7 @@ Shader::processBXDFs() {
 
     auto index = builder.CreateLoad(
         builder.CreateGEP(path_id_to_index_value, std::vector<llvm::Value *>{
-            path_id }));
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(ll_context), 0), path_id }));
 
     builder.CreateRet(index); }
 
