@@ -48,6 +48,8 @@ public:
     llvm::Module       *module()       { return d_module.get(); }
 
     const llvm::Function *main_function() const;
+    const llvm::Function *closure_function() const;
+    const llvm::Function *mapped_function() const;
 
     class Parameter {
     public:
@@ -118,7 +120,7 @@ private:
     std::vector<const BXDF *> d_bxdfs;
 
     llvm::TypedTrackingMDRef<llvm::MDNode> d_md;
-    llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_main_function_md, d_closure_function_md;
+    llvm::TypedTrackingMDRef<llvm::ValueAsMetadata> d_main_function_md, d_closure_function_md, d_mapped_function_md;
     llvm::TypedTrackingMDRef<llvm::MDTuple> d_parameters_md;
     llvm::TypedTrackingMDRef<llvm::MDTuple> d_bxdf_md;
 

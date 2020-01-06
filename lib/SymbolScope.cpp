@@ -84,7 +84,7 @@ SymbolScope::add(const Symbol *s) {
                         llosl_closure_output_annotation(address);
                     }
                     else {
-                        llosl_closure_storage_annotation(address);
+                        llosl_closure_storage_annotation(address, 1);
                     }
                 }
             }
@@ -106,7 +106,7 @@ SymbolScope::add(const Symbol *s) {
                         llosl_closure_output_annotation(address);
                     }
                     else {
-                        llosl_closure_storage_annotation(address);
+                        llosl_closure_storage_annotation(address, 1);
                     }
                 }
             }
@@ -116,13 +116,38 @@ SymbolScope::add(const Symbol *s) {
         } break;
         case SymTypeLocal:
         case SymTypeTemp: {
+            auto address = allocate(s);
+
+            if (t.is_closure_array()) {
+                llosl_closure_storage_annotation(address, t.arraylength());
+
+                for (unsigned i = 0, n = t.arraylength(); i < n; ++i) {
+                    d_builder.CreateStore(
+                        d_context.getLLVMClosureDefaultConstant(),
+                        d_builder.CreateConstGEP1_32(nullptr, address, i));
+                }
+
+                break;
+            }
+
+            if (t.is_closure()) {
+                llosl_closure_storage_annotation(address, 1);
+                d_builder.CreateStore(d_context.getLLVMClosureDefaultConstant(), address);
+
+                break;
+            }
+
             auto value = d_type_scope.getConstant(t, s->data()).first;
             assert(value);
 
-            auto address = allocate(s);
+            if (t.is_array()) {
+                for (unsigned i = 0, n = t.arraylength(); i < n; ++i) {
+                    d_builder.CreateStore(
+                        d_builder.CreateExtractValue(value, std::vector<unsigned>{ i }),
+                        d_builder.CreateConstGEP1_32(nullptr, address, i));
+                }
 
-            if (t.is_closure()) {
-                llosl_closure_storage_annotation(address);
+                break;
             }
 
             d_builder.CreateStore(value, address);
@@ -133,11 +158,22 @@ SymbolScope::add(const Symbol *s) {
 
             if (d_type_scope.isPassedByReference(t)) {
                 auto address = allocate(s);
+
+                if (t.is_array()) {
+                    for (unsigned i = 0, n = t.arraylength(); i < n; ++i) {
+                        d_builder.CreateStore(
+                            d_builder.CreateExtractValue(value, std::vector<unsigned>{ i }),
+                            d_builder.CreateConstGEP1_32(nullptr, address, i));
+                    }
+
+                    break;
+                }
+
                 d_builder.CreateStore(value, address);
+                break;
             }
-            else {
-                addValue(s, value);
-            }
+
+            addValue(s, value);
         } break;
         default:
             break;
@@ -202,7 +238,15 @@ SymbolScope::allocate(const Symbol *s) {
     const auto& t = s->typespec();
     auto name     = s->name();
 
-    auto address = d_builder.CreateAlloca(d_type_scope.get(t), nullptr, makeLLVMStringRef(name));
+    llvm::Type *type = t.is_array()
+        ? d_type_scope.get(t.elementtype())
+        : d_type_scope.get(t);
+
+    llvm::Value *count = t.is_array()
+        ? llvm::ConstantInt::get(d_context.getLLContext(), llvm::APInt(32, t.arraylength()))
+        : nullptr;
+
+    auto address = d_builder.CreateAlloca(type, count, makeLLVMStringRef(name));
     addReference(s, address);
 
     return address;

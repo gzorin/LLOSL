@@ -7,7 +7,6 @@
 #include <llvm/ADT/Optional.h>
 #include <llvm/ADT/SCCIterator.h>
 #include <llvm/Analysis/BasicAliasAnalysis.h>
-#include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/MemoryLocation.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
@@ -30,10 +29,7 @@ namespace llosl {
 class ClosureIRPass::Context {
 public:
 
-    Context(llvm::Function&, llvm::LoopInfo&, llvm::AAResults&);
-
-    llvm::LoopInfo&       loop_info()       { return d_loop_info; }
-    const llvm::LoopInfo& loop_info() const { return d_loop_info; }
+    Context(llvm::Function&, llvm::AAResults&);
 
     llvm::Function *llosl_closure_Ci_annotation             = nullptr,
                    *llosl_closure_output_annotation         = nullptr,
@@ -107,7 +103,6 @@ private:
     llvm::LLVMContext& d_ll_context;
     llvm::Module& d_module;
     llvm::Function& d_function;
-    llvm::LoopInfo& d_loop_info;
     llvm::AAResults& d_aa;
 
     SortedBlocks d_sorted_blocks;
@@ -132,12 +127,10 @@ private:
 };
 
 ClosureIRPass::Context::Context(
-    llvm::Function& function,
-    llvm::LoopInfo& loop_info, llvm::AAResults& aa)
+    llvm::Function& function, llvm::AAResults& aa)
 : d_ll_context(function.getParent()->getContext())
 , d_module(*function.getParent())
 , d_function(function)
-, d_loop_info(loop_info)
 , d_aa(aa) {
     llosl_closure_Ci_annotation             = d_module.getFunction("llosl_closure_Ci_annotation");
     llosl_closure_output_annotation         = d_module.getFunction("llosl_closure_output_annotation");
@@ -190,7 +183,8 @@ ClosureIRPass::Context::findClosureStorage(llvm::MemoryLocation location) const 
         auto jt = std::find_if(
             d_closure_locations.begin(), d_closure_locations.end(),
             [this, location](auto tmp) -> bool {
-                return d_aa.alias(location, tmp.first) == llvm::MustAlias;
+                auto result = d_aa.alias(location, tmp.first);
+                return result == llvm::MustAlias || result == llvm::PartialAlias;
             }
         );
         if (jt != d_closure_locations.end()) {
@@ -261,7 +255,7 @@ ClosureIRPass::Context::createReference(const llvm::CallInst& call_instruction) 
 
     auto storage = call_instruction.getArgOperand(0);
 
-    llvm::MemoryLocation location(storage, 1);
+    llvm::MemoryLocation location(storage, 8);
     auto tmp = findClosureStorage(location);
     assert(tmp);
 
@@ -291,11 +285,11 @@ AddClosureClosure *
 ClosureIRPass::Context::createAddClosureClosure(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 1);
+    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 8);
     auto lhs = findClosureStorage(lhs_location);
     assert(lhs);
 
-    llvm::MemoryLocation rhs_location(call_instruction.getArgOperand(2), 1);
+    llvm::MemoryLocation rhs_location(call_instruction.getArgOperand(2), 8);
     auto rhs = findClosureStorage(rhs_location);
     assert(rhs);
 
@@ -308,7 +302,7 @@ MulClosureColor *
 ClosureIRPass::Context::createMulClosureColor(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 1);
+    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 8);
     auto lhs = findClosureStorage(lhs_location);
     assert(lhs);
 
@@ -321,7 +315,7 @@ MulClosureFloat *
 ClosureIRPass::Context::createMulClosureFloat(const llvm::CallInst& call_instruction) {
     auto block = getBlock();
 
-    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 1);
+    llvm::MemoryLocation lhs_location(call_instruction.getArgOperand(1), 8);
     auto lhs = findClosureStorage(lhs_location);
     assert(lhs);
 
@@ -470,7 +464,6 @@ char ClosureIRPass::ID = 0;
 bool ClosureIRPass::runOnFunction(llvm::Function &F) {
     Context context(
         F,
-        getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo(),
         getAnalysis<llvm::AAResultsWrapperPass>().getAAResults());
 
     enum class Color {
@@ -535,13 +528,13 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
                         auto storage = call_instruction->getOperand(0);
 
                         if (called_function == context.llosl_closure_Ci_annotation) {
-                            context.insertClosureCi(llvm::MemoryLocation(storage, 1));
+                            context.insertClosureCi(llvm::MemoryLocation(storage, 8));
                         }
                         else if (called_function == context.llosl_closure_output_annotation) {
-                            context.insertClosureOutput(llvm::MemoryLocation(storage, 1));
+                            context.insertClosureOutput(llvm::MemoryLocation(storage, 8));
                         }
                         else {
-                            context.insertClosureStorage(llvm::MemoryLocation(storage, 1));
+                            context.insertClosureStorage(llvm::MemoryLocation(storage, llvm::cast<llvm::ConstantInt>(call_instruction->getArgOperand(1))->getSExtValue() * 8));
                         }
                     });
 
@@ -760,7 +753,6 @@ bool ClosureIRPass::runOnFunction(llvm::Function &F) {
 
 void ClosureIRPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.setPreservesAll();
-    AU.addRequired<llvm::LoopInfoWrapperPass>();
     AU.addRequired<llvm::AAResultsWrapperPass>();
 }
 

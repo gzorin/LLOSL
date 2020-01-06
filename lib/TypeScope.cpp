@@ -13,8 +13,14 @@ TypeScope::TypeScope(LLOSLContextImpl& context)
 
 llvm::Type *
 TypeScope::get(const OSL::pvt::TypeSpec& t) {
-    if (t.is_closure()) {
-        return d_context.getLLVMClosureType();
+    if (t.is_closure_based()) {
+        auto type = d_context.getLLVMClosureType();
+
+        if (t.is_closure_array()) {
+            return llvm::ArrayType::get(type, t.arraylength());
+        }
+
+        return type;
     }
 
     if (t.is_structure_based()) {
@@ -65,7 +71,11 @@ TypeScope::get(OSL::ustring name) {
 
 bool
 TypeScope::isPassedByReference(const OSL::pvt::TypeSpec& t) const {
-    if (t.is_closure() || t.is_structure_based()) {
+    if (t.is_closure() || t.is_structure()) {
+        return true;
+    }
+
+    if (t.is_array()) {
         return true;
     }
 
@@ -74,8 +84,12 @@ TypeScope::isPassedByReference(const OSL::pvt::TypeSpec& t) const {
 
 llvm::Type *
 TypeScope::getForArgument(const OSL::pvt::TypeSpec& t) {
-    if (t.is_closure() || t.is_structure_based()) {
+    if (t.is_closure() || t.is_structure()) {
         return llvm::PointerType::get(get(t), 0);
+    }
+
+    if (t.is_array()) {
+        return llvm::PointerType::get(get(t.elementtype()), 0);
     }
 
     return d_context.getLLVMTypeForArgument(t.simpletype(), false);
@@ -83,6 +97,15 @@ TypeScope::getForArgument(const OSL::pvt::TypeSpec& t) {
 
 llvm::Constant *
 TypeScope::getDefaultConstant(const OSL::pvt::TypeSpec& t) {
+    if (t.is_closure_array()) {
+        std::vector<llvm::Constant *> elements(
+            t.arraylength(), d_context.getLLVMClosureDefaultConstant());
+
+        return
+            llvm::ConstantArray::get(
+                llvm::cast<llvm::ArrayType>(get(t)), elements);
+    }
+
     if (t.is_closure()) {
         return d_context.getLLVMClosureDefaultConstant();
     }
@@ -99,7 +122,7 @@ TypeScope::getDefaultConstant(const OSL::pvt::TypeSpec& t) {
                 llvm::cast<llvm::ArrayType>(get(t)), elements);
     }
 
-    if (t.is_structure_based()) {
+    if (t.is_structure()) {
         auto struct_spec = t.structspec();
 
         std::vector<llvm::Constant *> members(struct_spec->numfields(), nullptr);
@@ -126,7 +149,7 @@ TypeScope::getConstant(const OSL::pvt::TypeSpec& t, const void *p) {
         return { getDefaultConstant(t), nullptr };
     }
 
-    if (t.is_closure()) {
+    if (t.is_closure_array() || t.is_closure()) {
         assert(false);
         return { nullptr, p };
     }
@@ -152,7 +175,7 @@ TypeScope::getConstant(const OSL::pvt::TypeSpec& t, const void *p) {
         };
     }
 
-    if (t.is_structure_based()) {
+    if (t.is_structure()) {
         auto struct_spec = t.structspec();
 
         std::vector<llvm::Constant *> members(struct_spec->numfields(), nullptr);

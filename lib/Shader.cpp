@@ -52,6 +52,10 @@ ustring u_dowhile("dowhile");
 ustring u_break("break");
 ustring u_continue("continue");
 ustring u_assign("assign");
+ustring u_aref("aref");
+ustring u_aassign("aassign");
+ustring u_compref("compref");
+ustring u_compassign("compassign");
 ustring u_add("add");
 ustring u_sub("sub");
 ustring u_mul("mul");
@@ -454,7 +458,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
 
     runtime_library.declare("llosl_closure_Ci_annotation", "xC");
     runtime_library.declare("llosl_closure_output_annotation", "xC");
-    runtime_library.declare("llosl_closure_storage_annotation", "xC");
+    runtime_library.declare("llosl_closure_storage_annotation", "xCi");
 
     #define DECL(name,signature) runtime_library.declare(#name, signature);
     #include "builtindecl.h"
@@ -881,6 +885,116 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
                                     ltype.simpletype());
 
                 builder.CreateStore(rvalue, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::u_aref) {
+                const auto& ltype = opargs[0]->typespec();
+                const auto  rtype = opargs[1]->typespec().elementtype();
+
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto rvalue = symbol_scope.getReference(opargs[1]);
+                auto index  = symbol_scope.getValueOrDereference(opargs[2]);
+
+                rvalue = builder.CreateLoad(
+                    builder.CreateInBoundsGEP(rvalue, index));
+
+                if (ltype.is_closure() || ltype.is_matrix() || ltype.is_structure() || ltype.is_string()) {
+                    builder.CreateStore(rvalue, lvalue);
+                    continue;
+                }
+
+                rvalue = CreateCast(type_scope, builder,
+                                    rtype.simpletype(), rvalue,
+                                    ltype.simpletype());
+
+                builder.CreateStore(rvalue, lvalue);
+                continue;
+            }
+
+            if (opname == Ops::u_aassign) {
+                const auto  ltype = opargs[0]->typespec().elementtype();
+                const auto& rtype = opargs[2]->typespec();
+
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto index  = symbol_scope.getValueOrDereference(opargs[1]);
+                auto rvalue = symbol_scope.getValueOrDereference(opargs[2]);
+
+                lvalue = builder.CreateInBoundsGEP(lvalue, index);
+
+                if (ltype.is_closure() || ltype.is_matrix() || ltype.is_structure() || ltype.is_string()) {
+                    if (ltype.is_closure() && rtype.is_int()) {
+                        assert(llvm::isa<llvm::ConstantInt>(rvalue));
+                        assert(llvm::cast<llvm::ConstantInt>(rvalue)->isZero());
+                        builder.CreateStore(
+                            d_context->getLLVMClosureDefaultConstant(),
+                            lvalue);
+                        continue;
+                    }
+
+                    if (ltype.is_closure()) {
+                        assert(rtype.is_closure());
+                    }
+                    else if (ltype.is_matrix()) {
+                        assert(rtype.is_matrix());
+                    }
+                    else if (ltype.is_structure()) {
+                        assert(rtype.is_structure());
+                    }
+                    else if (ltype.is_string()) {
+                        assert(rtype.is_string());
+                    }
+
+                    builder.CreateStore(rvalue, lvalue);
+
+                    continue;
+                }
+
+                rvalue = CreateCast(type_scope, builder,
+                                    rtype.simpletype(), rvalue,
+                                    ltype.simpletype());
+
+                builder.CreateStore(rvalue, lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::u_compref) {
+                const auto& ltype = opargs[0]->typespec();
+                const auto& rtype = opargs[1]->typespec();
+
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto rvalue = symbol_scope.getValueOrDereference(opargs[1]);
+                auto index  = symbol_scope.getValueOrDereference(opargs[2]);
+
+                rvalue = CreateCast(type_scope, builder,
+                                    rtype.simpletype(), rvalue,
+                                    ltype.simpletype());
+
+                builder.CreateStore(
+                    builder.CreateExtractElement(rvalue, index),
+                    lvalue);
+
+                continue;
+            }
+
+            if (opname == Ops::u_compassign) {
+                const auto& ltype = opargs[0]->typespec();
+                const auto& rtype = opargs[2]->typespec();
+
+                auto lvalue = symbol_scope.getReference(opargs[0]);
+                auto index  = symbol_scope.getValueOrDereference(opargs[1]);
+                auto rvalue = symbol_scope.getValueOrDereference(opargs[2]);
+
+                rvalue = CreateCast(type_scope, builder,
+                                    rtype.simpletype(), rvalue,
+                                    OSL::TypeDesc((OSL::TypeDesc::BASETYPE)ltype.simpletype().basetype));
+
+                builder.CreateStore(
+                    builder.CreateInsertElement(
+                        builder.CreateLoad(lvalue), rvalue, index),
+                    lvalue);
 
                 continue;
             }
@@ -1330,6 +1444,7 @@ Shader::Shader(LLOSLContextImpl& context, OSL::pvt::ShaderMaster& shader_master)
         llvm::MDTuple::get(ll_context, {
             d_main_function_md.get(),
             d_closure_function_md.get(),
+            d_mapped_function_md.get(),
             d_parameters_md.get(),
             d_bxdf_md.get()
         }));
@@ -1462,10 +1577,13 @@ Shader::processBXDFs() {
     auto path_id = builder.CreateCall(function, args);
 
     auto index = builder.CreateLoad(
-        builder.CreateGEP(path_id_to_index_value, std::vector<llvm::Value *>{
+        builder.CreateInBoundsGEP(path_id_to_index_value, std::vector<llvm::Value *>{
             llvm::ConstantInt::get(llvm::Type::getInt32Ty(ll_context), 0), path_id }));
 
     builder.CreateRet(index); }
+
+    d_mapped_function_md.reset(
+        llvm::ValueAsMetadata::get(mapping_function));
 
     d_bxdf_md.reset(
         llvm::MDTuple::get(ll_context, bxdf_mds));
@@ -1495,6 +1613,20 @@ const llvm::Function *
 Shader::main_function() const {
     return d_main_function_md
       ? llvm::cast<llvm::Function>(d_main_function_md->getValue())
+      : nullptr;
+}
+
+const llvm::Function *
+Shader::closure_function() const {
+    return d_closure_function_md
+      ? llvm::cast<llvm::Function>(d_closure_function_md->getValue())
+      : nullptr;
+}
+
+const llvm::Function *
+Shader::mapped_function() const {
+    return d_mapped_function_md
+      ? llvm::cast<llvm::Function>(d_mapped_function_md->getValue())
       : nullptr;
 }
 
