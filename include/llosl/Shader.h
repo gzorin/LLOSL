@@ -11,6 +11,7 @@
 #include <memory>
 
 namespace llvm {
+class Constant;
 class Function;
 class Module;
 class Type;
@@ -61,12 +62,13 @@ public:
         llvm::Type *llvm_type() const;
         bool is_closure() const { return d_is_closure; }
         OIIO::TypeDesc osl_type() const;
+        llvm::Constant *default_value() const { return d_default_value; }
 
     private:
 
         friend class Shader;
 
-        Parameter(bool, llvm::Type *, unsigned, llvm::ArrayRef<OIIO::ustring>, bool, const OIIO::TypeDesc&, Shader *);
+        Parameter(bool, llvm::Type *, unsigned, llvm::ArrayRef<OIIO::ustring>, bool, const OIIO::TypeDesc&, llvm::Constant *, Shader *);
         ~Parameter() = default;
 
         Shader* d_parent = nullptr;
@@ -74,6 +76,7 @@ public:
         llvm::Type *d_type = nullptr;
         std::vector<OIIO::ustring> d_name;
         bool d_is_closure = false;
+        llvm::Constant *d_default_value = nullptr;
 
         llvm::TypedTrackingMDRef<llvm::MDTuple> d_md;
 
