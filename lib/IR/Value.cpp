@@ -5,8 +5,7 @@
 namespace llosl {
 
 Value::Value(ValueKind kind)
-: d_kind(kind) {
-}
+    : d_kind(kind) {}
 
 Value::~Value() {
     assert(d_uses.empty());
@@ -18,10 +17,9 @@ Value::dump() const {
 }
 
 //
-Output::Output(const llvm::Value& ll_value)
-: Value(ValueKind::Output)
-, d_ll_value(ll_value) {
-}
+Output::Output(const llvm::Value &ll_value)
+    : Value(ValueKind::Output)
+    , d_ll_value(ll_value) {}
 
 const llvm::Value *
 Output::getLLValue() const {

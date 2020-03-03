@@ -9,12 +9,11 @@ namespace llosl {
 
 //
 Block::Block(Value::ValueKind kind, ClosureFunction *function)
-: Value(kind) {
+    : Value(kind) {
     setParent(function);
 }
 
-Block::~Block() {
-}
+Block::~Block() {}
 
 void
 Block::setParent(ClosureFunction *function) {
@@ -51,18 +50,14 @@ Block::eraseSuccessor(Block *block) {
 }
 
 //
-ClosureBlock::ClosureBlock(llvm::BasicBlock& ll_block, ClosureFunction *function)
-: Block(Value::ValueKind::ClosureBlock, function)
-, d_ll_block(ll_block) {
-}
+ClosureBlock::ClosureBlock(llvm::BasicBlock &ll_block, ClosureFunction *function)
+    : Block(Value::ValueKind::ClosureBlock, function)
+    , d_ll_block(ll_block) {}
 
 void
 ClosureBlock::dropAllReferences() {
-    std::for_each(
-        d_insts.begin(), d_insts.end(),
-        [](auto& instruction) -> void {
-            instruction.dropAllReferences();
-        });
+    std::for_each(d_insts.begin(), d_insts.end(),
+                  [](auto &instruction) -> void { instruction.dropAllReferences(); });
 }
 
 const llvm::Value *
@@ -76,41 +71,33 @@ ClosureBlock::dump() const {
 
     if (preds_begin() != preds_end()) {
         llvm::errs() << "\t; predecessors:";
-        std::for_each(
-            preds_begin(), preds_end(),
-            [](auto tmp) {
-                auto [ pred, edge ] = tmp;
+        std::for_each(preds_begin(), preds_end(), [](auto tmp) {
+            auto [pred, edge] = tmp;
 
-                if (llvm::isa<ClosureBlock>(pred)) {
-                    llvm::errs() << " " << llvm::cast<ClosureBlock>(pred)->d_ll_block.getName();
-                }
-                else if (llvm::isa<NonClosureRegion>(pred)) {
-                    llvm::errs() << " (non-closure-region)";
-                }
-            });
+            if (llvm::isa<ClosureBlock>(pred)) {
+                llvm::errs() << " " << llvm::cast<ClosureBlock>(pred)->d_ll_block.getName();
+            }
+            else if (llvm::isa<NonClosureRegion>(pred)) {
+                llvm::errs() << " (non-closure-region)";
+            }
+        });
         llvm::errs() << "\n";
     }
 
-    std::for_each(
-        insts_begin(), insts_end(),
-        [](const auto& inst) {
-            inst.dump();
-        });
+    std::for_each(insts_begin(), insts_end(), [](const auto &inst) { inst.dump(); });
 
     if (succs_begin() != succs_end()) {
         llvm::errs() << "\t; successors:";
-        std::for_each(
-            succs_begin(), succs_end(),
-            [](auto tmp) {
-                auto [ succ, edge ] = tmp;
+        std::for_each(succs_begin(), succs_end(), [](auto tmp) {
+            auto [succ, edge] = tmp;
 
-                if (llvm::isa<ClosureBlock>(succ)) {
-                    llvm::errs() << " " << llvm::cast<ClosureBlock>(succ)->d_ll_block.getName();
-                }
-                else if (llvm::isa<NonClosureRegion>(succ)) {
-                    llvm::errs() << " (non-closure-region)";
-                }
-            });
+            if (llvm::isa<ClosureBlock>(succ)) {
+                llvm::errs() << " " << llvm::cast<ClosureBlock>(succ)->d_ll_block.getName();
+            }
+            else if (llvm::isa<NonClosureRegion>(succ)) {
+                llvm::errs() << " (non-closure-region)";
+            }
+        });
         llvm::errs() << "\n";
     }
 
@@ -118,10 +105,9 @@ ClosureBlock::dump() const {
 }
 
 //
-NonClosureRegion::NonClosureRegion(BlockListType&& ll_blocks, ClosureFunction *function)
-: Block(Value::ValueKind::NonClosureRegion, function)
-, d_ll_blocks(ll_blocks) {
-}
+NonClosureRegion::NonClosureRegion(BlockListType &&ll_blocks, ClosureFunction *function)
+    : Block(Value::ValueKind::NonClosureRegion, function)
+    , d_ll_blocks(ll_blocks) {}
 
 const llvm::Value *
 NonClosureRegion::getLLValue() const {
@@ -134,41 +120,34 @@ NonClosureRegion::dump() const {
 
     if (preds_begin() != preds_end()) {
         llvm::errs() << "\t; predecessors:";
-        std::for_each(
-            preds_begin(), preds_end(),
-            [](auto tmp) {
-                auto [ pred, edge ] = tmp;
+        std::for_each(preds_begin(), preds_end(), [](auto tmp) {
+            auto [pred, edge] = tmp;
 
-                if (llvm::isa<ClosureBlock>(pred)) {
-                    llvm::errs() << " " << llvm::cast<ClosureBlock>(pred)->d_ll_block.getName();
-                }
-                else if (llvm::isa<NonClosureRegion>(pred)) {
-                    llvm::errs() << " (non-closure-region)";
-                }
-            });
+            if (llvm::isa<ClosureBlock>(pred)) {
+                llvm::errs() << " " << llvm::cast<ClosureBlock>(pred)->d_ll_block.getName();
+            }
+            else if (llvm::isa<NonClosureRegion>(pred)) {
+                llvm::errs() << " (non-closure-region)";
+            }
+        });
         llvm::errs() << "\n";
     }
 
-    std::for_each(
-        d_ll_blocks.begin(), d_ll_blocks.end(),
-        [](const auto ll_block) {
-            llvm::errs() << ll_block->getName() << "\n";
-        });
+    std::for_each(d_ll_blocks.begin(), d_ll_blocks.end(),
+                  [](const auto ll_block) { llvm::errs() << ll_block->getName() << "\n"; });
 
     if (succs_begin() != succs_end()) {
         llvm::errs() << "\t; successors:";
-        std::for_each(
-            succs_begin(), succs_end(),
-            [](auto tmp) {
-                auto [ succ, edge ] = tmp;
+        std::for_each(succs_begin(), succs_end(), [](auto tmp) {
+            auto [succ, edge] = tmp;
 
-                if (llvm::isa<ClosureBlock>(succ)) {
-                    llvm::errs() << " " << llvm::cast<ClosureBlock>(succ)->d_ll_block.getName();
-                }
-                else if (llvm::isa<NonClosureRegion>(succ)) {
-                    llvm::errs() << " (non-closure-region)";
-                }
-            });
+            if (llvm::isa<ClosureBlock>(succ)) {
+                llvm::errs() << " " << llvm::cast<ClosureBlock>(succ)->d_ll_block.getName();
+            }
+            else if (llvm::isa<NonClosureRegion>(succ)) {
+                llvm::errs() << " (non-closure-region)";
+            }
+        });
         llvm::errs() << "\n";
     }
 

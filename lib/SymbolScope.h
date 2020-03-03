@@ -19,13 +19,11 @@ class TypeScope;
 
 using ShaderGlobalsIndex = std::map<OSL::ustring, unsigned>;
 
-const ShaderGlobalsIndex&
-getShaderGlobalsIndex();
+const ShaderGlobalsIndex &getShaderGlobalsIndex();
 
 class SymbolScope {
 public:
-
-    SymbolScope(LLOSLContextImpl&, TypeScope&, Library&, llvm::IRBuilder<>& builder,
+    SymbolScope(LLOSLContextImpl &, TypeScope &, Library &, llvm::IRBuilder<> &builder,
                 llvm::Function * = nullptr, llvm::Value * = nullptr);
 
     void add(const Symbol *);
@@ -36,18 +34,18 @@ public:
     llvm::Value *getValueForArgument(const Symbol *);
 
 private:
-
-    void addReference(const Symbol *, llvm::Value *);
-    void addValue(const Symbol *, llvm::Value *);
+    void         addReference(const Symbol *, llvm::Value *);
+    void         addValue(const Symbol *, llvm::Value *);
     llvm::Value *allocate(const Symbol *);
 
-    LLOSLContextImpl& d_context;
-    TypeScope& d_type_scope;
-    Library::CallingContext d_library_context;
-    llvm::IRBuilder<>& d_builder;
-    llvm::Function *d_function = nullptr;
-    llvm::Value *d_shader_globals = nullptr;
-    Library::CallingContext::Callable llosl_closure_Ci_annotation, llosl_closure_output_annotation, llosl_closure_storage_annotation;
+    LLOSLContextImpl &                d_context;
+    TypeScope &                       d_type_scope;
+    Library::CallingContext           d_library_context;
+    llvm::IRBuilder<> &               d_builder;
+    llvm::Function *                  d_function       = nullptr;
+    llvm::Value *                     d_shader_globals = nullptr;
+    Library::CallingContext::Callable llosl_closure_Ci_annotation, llosl_closure_output_annotation,
+        llosl_closure_storage_annotation;
 
     std::map<OSL::ustring, llvm::Argument *> d_arguments_by_name;
 

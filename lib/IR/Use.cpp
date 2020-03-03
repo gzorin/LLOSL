@@ -3,8 +3,7 @@
 
 namespace llosl {
 
-Use::Use() {
-}
+Use::Use() {}
 
 Use::Use(Value *value) {
     set(value);

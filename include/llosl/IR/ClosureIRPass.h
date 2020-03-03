@@ -24,7 +24,6 @@ public:
     void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
-
     class Context;
 
     std::shared_ptr<ClosureFunction> d_closure_function;

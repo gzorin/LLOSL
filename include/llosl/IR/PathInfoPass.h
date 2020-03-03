@@ -17,7 +17,6 @@ class PathInfoPass;
 
 class PathInfo {
 public:
-
     PathInfo(std::shared_ptr<ClosureFunction>);
 
     std::shared_ptr<ClosureFunction> getIR() const { return d_ir; }
@@ -25,45 +24,44 @@ public:
     using EdgeIDMap = llvm::DenseMap<const Block *, unsigned>;
 
     struct BlockInfo {
-        unsigned path_count = 0;
+        unsigned  path_count = 0;
         EdgeIDMap edge_id;
     };
 
     using BlockInfoMap = llvm::DenseMap<const Block *, BlockInfo>;
 
     llvm::Optional<const BlockInfo *> getInfoForBlock(const Block *) const;
-    llvm::Optional<unsigned> getPathCountForBlock(const Block *) const;
+    llvm::Optional<unsigned>          getPathCountForBlock(const Block *) const;
     llvm::Optional<const EdgeIDMap *> getEdgeIDsForBlock(const Block *) const;
-    llvm::Optional<unsigned> getEdgeIDForBlocks(const Block *, const Block *) const;
+    llvm::Optional<unsigned>          getEdgeIDForBlocks(const Block *, const Block *) const;
 
     // The list of blocks in topological order:
     using BlockList = std::list<const Block *>;
 
-    BlockList&       getBlockList()       { return d_block_list; }
-    const BlockList& getBlockList() const { return d_block_list; }
+    BlockList &      getBlockList() { return d_block_list; }
+    const BlockList &getBlockList() const { return d_block_list; }
 
-    BlockList::iterator       blocks_begin()       { return d_block_list.begin(); }
-    BlockList::iterator       blocks_end()         { return d_block_list.end();   }
+    BlockList::iterator blocks_begin() { return d_block_list.begin(); }
+    BlockList::iterator blocks_end() { return d_block_list.end(); }
 
     BlockList::const_iterator blocks_begin() const { return d_block_list.begin(); }
-    BlockList::const_iterator blocks_end()   const { return d_block_list.end();   }
+    BlockList::const_iterator blocks_end() const { return d_block_list.end(); }
 
-    BlockList::reverse_iterator       blocks_rbegin()       { return d_block_list.rbegin(); }
-    BlockList::reverse_iterator       blocks_rend()         { return d_block_list.rend();   }
+    BlockList::reverse_iterator blocks_rbegin() { return d_block_list.rbegin(); }
+    BlockList::reverse_iterator blocks_rend() { return d_block_list.rend(); }
 
     BlockList::const_reverse_iterator blocks_rbegin() const { return d_block_list.rbegin(); }
-    BlockList::const_reverse_iterator blocks_rend()   const { return d_block_list.rend();   }
+    BlockList::const_reverse_iterator blocks_rend() const { return d_block_list.rend(); }
 
     unsigned getPathCount() const { return *getPathCountForBlock(*blocks_begin()); }
 
 private:
-
     void insertLeaf(const Block *);
     void insertEdge(const Block *, const Block *);
 
     std::shared_ptr<ClosureFunction> d_ir;
-    std::list<const Block *> d_block_list;
-    BlockInfoMap d_block_info;
+    std::list<const Block *>         d_block_list;
+    BlockInfoMap                     d_block_info;
 
     friend class PathInfoPass;
 };
@@ -81,7 +79,6 @@ public:
     void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
-
     std::shared_ptr<const PathInfo> d_path_info;
 };
 

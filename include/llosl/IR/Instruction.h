@@ -21,115 +21,98 @@ namespace llosl {
 
 class ClosureBlock;
 
-class Instruction : public User
-                  , public llvm::ilist_node_with_parent<Instruction, ClosureBlock> {
+class Instruction
+    : public User
+    , public llvm::ilist_node_with_parent<Instruction, ClosureBlock> {
 public:
-
-    static bool classof(const Value* value) {
+    static bool classof(const Value *value) {
         const auto kind = value->getKind();
         return kind >= Value::ValueKind::Instruction && kind < Value::ValueKind::InstructionMax;
     }
 
-    void setParent(ClosureBlock *);
+    void          setParent(ClosureBlock *);
     ClosureBlock *getParent() const { return d_block; }
 
 protected:
-
     Instruction(Value::ValueKind, unsigned, ClosureBlock * = nullptr);
 
 private:
-
     ClosureBlock *d_block = nullptr;
 };
 
 class Reference : public Instruction {
 public:
-
-    static bool classof(const Value* value) {
+    static bool classof(const Value *value) {
         return value->getKind() == Value::ValueKind::Reference;
     }
 
-    Reference(const llvm::Value&, unsigned, ClosureBlock * = nullptr);
+    Reference(const llvm::Value &, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
     const llvm::Value *getLLValue() const override;
-    void dump() const override;
+    void               dump() const override;
 
 private:
-
-    const llvm::Value& d_ll_value;
-    unsigned d_location;
+    const llvm::Value &d_ll_value;
+    unsigned           d_location;
 };
 
 class Null : public Instruction {
 public:
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::Null; }
 
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Null;
-    }
-
-    Null(const llvm::Value&, ClosureBlock * = nullptr);
+    Null(const llvm::Value &, ClosureBlock * = nullptr);
 
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::Value& d_ll_value;
+    const llvm::Value &d_ll_value;
 };
 
 class Load : public Instruction {
 public:
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::Load; }
 
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Load;
-    }
-
-    Load(const llvm::LoadInst&, unsigned, ClosureBlock * = nullptr);
+    Load(const llvm::LoadInst &, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
     const llvm::Value *getLLValue() const override;
-    void dump() const override;
+    void               dump() const override;
 
 private:
-
-    const llvm::LoadInst& d_ll_instruction;
-    unsigned d_location;
+    const llvm::LoadInst &d_ll_instruction;
+    unsigned              d_location;
 };
 
 class Store : public Instruction {
 public:
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::Store; }
 
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Store;
-    }
-
-    Store(const llvm::StoreInst&, Value&, unsigned, ClosureBlock * = nullptr);
+    Store(const llvm::StoreInst &, Value &, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLocation() const { return d_location; }
 
-    Value *getOperand()             { return &d_rhs; }
+    Value *      getOperand() { return &d_rhs; }
     const Value *getOperand() const { return &d_rhs; }
 
     const llvm::Value *getLLValue() const override;
-    void dump() const override;
+    void               dump() const override;
 
 private:
-
-    const llvm::StoreInst& d_ll_instruction;
-    Value& d_rhs;
-    unsigned d_location;
+    const llvm::StoreInst &d_ll_instruction;
+    Value &                d_rhs;
+    unsigned               d_location;
 };
 
 class AllocateComponent : public Instruction {
 public:
-
     static bool classof(const Value *value) {
         return value->getKind() == Value::ValueKind::AllocateComponent;
     }
 
-    AllocateComponent(const llvm::CallInst&, ClosureBlock * = nullptr);
+    AllocateComponent(const llvm::CallInst &, ClosureBlock * = nullptr);
 
     unsigned getClosureID() const;
     unsigned getClosureSize() const;
@@ -137,18 +120,16 @@ public:
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::CallInst& d_ll_instruction;
+    const llvm::CallInst &d_ll_instruction;
 };
 
 class AllocateWeightedComponent : public Instruction {
 public:
-
     static bool classof(const Value *value) {
         return value->getKind() == Value::ValueKind::AllocateWeightedComponent;
     }
 
-    AllocateWeightedComponent(const llvm::CallInst&, ClosureBlock * = nullptr);
+    AllocateWeightedComponent(const llvm::CallInst &, ClosureBlock * = nullptr);
 
     unsigned getClosureID() const;
     unsigned getClosureSize() const;
@@ -156,18 +137,16 @@ public:
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::CallInst& d_ll_instruction;
+    const llvm::CallInst &d_ll_instruction;
 };
 
 class AddClosureClosure : public Instruction {
 public:
-
     static bool classof(const Value *value) {
         return value->getKind() == Value::ValueKind::AddClosureClosure;
     }
 
-    AddClosureClosure(const llvm::CallInst&, unsigned, unsigned, ClosureBlock * = nullptr);
+    AddClosureClosure(const llvm::CallInst &, unsigned, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLHS() const { return d_lhs; }
 
@@ -176,101 +155,84 @@ public:
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::CallInst& d_ll_instruction;
-    unsigned d_lhs;
-    unsigned d_rhs;
+    const llvm::CallInst &d_ll_instruction;
+    unsigned              d_lhs;
+    unsigned              d_rhs;
 };
 
 class MulClosureColor : public Instruction {
 public:
-
     static bool classof(const Value *value) {
         return value->getKind() == Value::ValueKind::MulClosureColor;
     }
 
-    MulClosureColor(const llvm::CallInst&, unsigned, ClosureBlock * = nullptr);
+    MulClosureColor(const llvm::CallInst &, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLHS() const { return d_lhs; }
 
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::CallInst& d_ll_instruction;
-    unsigned d_lhs;
+    const llvm::CallInst &d_ll_instruction;
+    unsigned              d_lhs;
 };
 
 class MulClosureFloat : public Instruction {
 public:
-
     static bool classof(const Value *value) {
         return value->getKind() == Value::ValueKind::MulClosureFloat;
     }
 
-    MulClosureFloat(const llvm::CallInst&, unsigned, ClosureBlock * = nullptr);
+    MulClosureFloat(const llvm::CallInst &, unsigned, ClosureBlock * = nullptr);
 
     unsigned getLHS() const { return d_lhs; }
 
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::CallInst& d_ll_instruction;
-    unsigned d_lhs;
+    const llvm::CallInst &d_ll_instruction;
+    unsigned              d_lhs;
 };
 
 class Cast : public Instruction {
 public:
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::Cast; }
 
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Cast;
-    }
+    Cast(const llvm::CastInst &, Value &, ClosureBlock * = nullptr);
 
-    Cast(const llvm::CastInst&, Value&, ClosureBlock * = nullptr);
-
-    Value *getOperand()             { return &d_rhs; }
+    Value *      getOperand() { return &d_rhs; }
     const Value *getOperand() const { return &d_rhs; }
 
     const llvm::Value *getLLValue() const override;
-    void dump() const override;
+    void               dump() const override;
 
 private:
-
-    const llvm::CastInst& d_ll_instruction;
-    Value& d_rhs;
+    const llvm::CastInst &d_ll_instruction;
+    Value &               d_rhs;
 };
 
 class PHI : public Instruction {
 public:
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::PHI; }
 
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::PHI;
-    }
-
-    PHI(const llvm::PHINode&, llvm::ArrayRef<Value *>, ClosureBlock * = nullptr);
+    PHI(const llvm::PHINode &, llvm::ArrayRef<Value *>, ClosureBlock * = nullptr);
 
     const llvm::Value *getLLValue() const override;
 
 private:
-
-    const llvm::PHINode& d_ll_instruction;
+    const llvm::PHINode &d_ll_instruction;
 };
 
 class Return : public Instruction {
 public:
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::Return; }
 
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Return;
-    }
-
-    Return(llvm::ReturnInst&, ClosureBlock * = nullptr);
+    Return(llvm::ReturnInst &, ClosureBlock * = nullptr);
 
     const llvm::Value *getLLValue() const override;
-    void dump() const override;
+    void               dump() const override;
 
 private:
-
     llvm::TrackingVH<llvm::ReturnInst> d_ll_instruction;
 };
 

@@ -20,32 +20,30 @@ class LLOSLContextImpl;
 
 class BXDF : public llvm::ilist_node<BXDF> {
 public:
-
-    using Encoding = std::basic_string<uint8_t>;
+    using Encoding     = std::basic_string<uint8_t>;
     using EncodingView = std::basic_string_view<uint8_t>;
 
     ~BXDF();
 
-    BXDF() = delete;
-    BXDF(const BXDF&) = delete;
-    BXDF(BXDF&&) = delete;
+    BXDF()             = delete;
+    BXDF(const BXDF &) = delete;
+    BXDF(BXDF &&)      = delete;
 
-    const EncodingView encoding() const    { return d_encoding;   }
+    const EncodingView encoding() const { return d_encoding; }
 
-    llvm::Type *scope_type() const         { return d_scope_type; }
-    llvm::Function *function() const       { return d_function;   }
+    llvm::Type *    scope_type() const { return d_scope_type; }
+    llvm::Function *function() const { return d_function; }
 
-    std::size_t heap_size() const          { return d_heap_size;  }
+    std::size_t heap_size() const { return d_heap_size; }
 
 private:
-
-    BXDF(LLOSLContextImpl&, EncodingView, BXDFAST::NodeRef, std::size_t);
+    BXDF(LLOSLContextImpl &, EncodingView, BXDFAST::NodeRef, std::size_t);
 
     LLOSLContextImpl *d_context;
-    Encoding d_encoding;
-    llvm::Type *d_scope_type = nullptr;
-    llvm::Function *d_function = nullptr;
-    std::size_t d_heap_size = 0;
+    Encoding          d_encoding;
+    llvm::Type *      d_scope_type = nullptr;
+    llvm::Function *  d_function   = nullptr;
+    std::size_t       d_heap_size  = 0;
 
     friend class LLOSLContextImpl;
 };

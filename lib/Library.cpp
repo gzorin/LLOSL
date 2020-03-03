@@ -11,37 +11,36 @@
 
 namespace llosl {
 
-Library::Library(LLOSLContextImpl& context, TypeScope& type_scope, llvm::Module& module)
+Library::Library(LLOSLContextImpl &context, TypeScope &type_scope, llvm::Module &module)
     : d_context(context)
     , d_type_scope(type_scope)
-    , d_module(module) {
-}
+    , d_module(module) {}
 
 Library::Function *
 Library::declare(const char *name, const char *signature) {
-    auto tmp = d_functions.insert({ OSL::ustring(name), Function() });
+    auto tmp = d_functions.insert({OSL::ustring(name), Function()});
     assert(tmp.second);
 
     auto it = tmp.first;
 
-    auto& function = it->second;
+    auto &function = it->second;
 
     auto parseType = [this](const char *signature) -> std::tuple<OSL::pvt::TypeSpec, const char *> {
-        int advance = 0;
-        auto t = OSLCompilerImpl::type_from_code(signature, &advance);
+        int  advance = 0;
+        auto t       = OSLCompilerImpl::type_from_code(signature, &advance);
 
-        return { t, signature + advance };
+        return {t, signature + advance};
     };
 
     //
-    auto [ t, next_signature ] = parseType(signature);
+    auto [t, next_signature] = parseType(signature);
     std::exchange(signature, next_signature);
 
     function.returnType = t;
 
     while (*signature) {
-        auto [ t, next_signature ] = parseType(signature);
-        auto t_signature = std::exchange(signature, next_signature);
+        auto [t, next_signature] = parseType(signature);
+        auto t_signature         = std::exchange(signature, next_signature);
 
         if (*t_signature == '*') {
             assert(t.simpletype().basetype == TypeDesc::UNKNOWN);
@@ -58,30 +57,26 @@ Library::declare(const char *name, const char *signature) {
     std::vector<llvm::Type *> param_types;
     param_types.reserve(function.paramTypes.size());
 
-    std::transform(
-        function.paramTypes.begin(), function.paramTypes.end(),
-        std::back_inserter(param_types),
-        [this](const auto& t) -> auto {
-            return d_type_scope.getForArgument(t);
-        });
+    std::transform(function.paramTypes.begin(), function.paramTypes.end(),
+                   std::back_inserter(param_types), [this](const auto &t) -> auto {
+                       return d_type_scope.getForArgument(t);
+                   });
 
-    function.function = llvm::Function::Create(
-        llvm::FunctionType::get(return_type, param_types, function.isVarArg),
-        llvm::GlobalValue::ExternalLinkage, name, &d_module);
+    function.function =
+        llvm::Function::Create(llvm::FunctionType::get(return_type, param_types, function.isVarArg),
+                               llvm::GlobalValue::ExternalLinkage, name, &d_module);
 
     return &it->second;
 }
 
-Library::Function&
-Library::operator[](llvm::StringRef name) {
+Library::Function &Library::operator[](llvm::StringRef name) {
     auto it = d_functions.find(makeOSLUString(name));
     assert(it != d_functions.end());
 
     return it->second;
 }
 
-Library::Function&
-Library::operator[](OSL::ustring name) {
+Library::Function &Library::operator[](OSL::ustring name) {
     auto it = d_functions.find(name);
     assert(it != d_functions.end());
 
@@ -89,42 +84,39 @@ Library::operator[](OSL::ustring name) {
 }
 
 llvm::Value *
-Library::CallingContext::GetValueForArgument(SymbolScope& symbol_scope, const Symbol * s) {
+Library::CallingContext::GetValueForArgument(SymbolScope &symbol_scope, const Symbol *s) {
     return symbol_scope.getValueForArgument(s);
 }
 
-Library::CallingContext::CallingContext(Library& library, SymbolScope& symbol_scope, llvm::IRBuilder<>& builder)
+Library::CallingContext::CallingContext(Library &library, SymbolScope &symbol_scope,
+                                        llvm::IRBuilder<> &builder)
     : d_library(library)
     , d_symbol_scope(symbol_scope)
-    , d_builder(builder) {
-}
+    , d_builder(builder) {}
 
 llvm::Value *
 Library::CallingContext::call(llvm::StringRef name, llvm::ArrayRef<llvm::Value *> args) {
     auto it = d_library.d_functions.find(makeOSLUString(name));
-    assert (it != d_library.d_functions.end());
+    assert(it != d_library.d_functions.end());
 
     return call(it->second, args);
 }
 
 llvm::Value *
-Library::CallingContext::call(Function& function, llvm::ArrayRef<llvm::Value *> args) {
+Library::CallingContext::call(Function &function, llvm::ArrayRef<llvm::Value *> args) {
     return d_builder.CreateCall(function.function, args);
 }
 
-Library::CallingContext::Callable
-Library::CallingContext::operator[](llvm::StringRef name) {
+Library::CallingContext::Callable Library::CallingContext::operator[](llvm::StringRef name) {
     return Callable(*this, d_library[name]);
 }
 
-Library::CallingContext::Callable
-Library::CallingContext::operator[](OSL::ustring name) {
+Library::CallingContext::Callable Library::CallingContext::operator[](OSL::ustring name) {
     return Callable(*this, d_library[name]);
 }
 
-Library::CallingContext::Callable::Callable(CallingContext& caller, Function& function)
+Library::CallingContext::Callable::Callable(CallingContext &caller, Function &function)
     : d_caller(caller)
-    , d_function(function) {
-}
+    , d_function(function) {}
 
 } // End namespace llosl

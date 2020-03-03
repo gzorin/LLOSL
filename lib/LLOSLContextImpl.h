@@ -4,10 +4,10 @@
 
 #include "OSLErrorHandler.h"
 
-#include <llosl/LLOSLContext.h>
 #include <llosl/BXDF.h>
-#include <llosl/UberBXDF.h>
 #include <llosl/IR/BXDFAST.h>
+#include <llosl/LLOSLContext.h>
+#include <llosl/UberBXDF.h>
 
 #include <OSL/oslexec.h>
 
@@ -20,11 +20,10 @@
 #include <unordered_map>
 
 namespace std {
-    template<>
-    struct hash<OSL::pvt::ShaderMaster::ref> {
-        std::size_t operator()(OSL::pvt::ShaderMaster::ref p) const;
-    };
-}
+template <> struct hash<OSL::pvt::ShaderMaster::ref> {
+    std::size_t operator()(OSL::pvt::ShaderMaster::ref p) const;
+};
+} // namespace std
 
 namespace llvm {
 class FunctionType;
@@ -42,142 +41,142 @@ class Shader;
 
 class LLOSLContextImpl : private OSL::RendererServices {
 public:
+    inline static std::error_code make_error_code(LLOSLContext::Error e) {
+        return std::error_code(static_cast<int>(e), LLOSLContext::ErrorCategory());
+    }
 
-  inline static std::error_code make_error_code(LLOSLContext::Error e) {
-      return std::error_code(static_cast<int>(e), LLOSLContext::ErrorCategory());
-  }
+    static const LLOSLContextImpl &Get(const LLOSLContext &context) { return *context.d_impl; }
+    static LLOSLContextImpl &      Get(LLOSLContext &context) { return *context.d_impl; }
 
-  static const LLOSLContextImpl& Get(const LLOSLContext& context) { return *context.d_impl; }
-  static LLOSLContextImpl&       Get(LLOSLContext& context)       { return *context.d_impl; }
+    LLOSLContextImpl(llvm::LLVMContext &, unsigned = 0);
+    ~LLOSLContextImpl();
 
-  LLOSLContextImpl(llvm::LLVMContext&, unsigned = 0);
-  ~LLOSLContextImpl();
+    const llvm::LLVMContext &getLLContext() const { return d_llcontext; }
+    llvm::LLVMContext &      getLLContext() { return d_llcontext; }
 
-  const llvm::LLVMContext&         getLLContext() const { return d_llcontext; }
-  llvm::LLVMContext&               getLLContext()       { return d_llcontext; }
+    //
+    llvm::Type *                              getLLVMType(const OIIO::TypeDesc &, bool);
+    llvm::Constant *                          getLLVMDefaultConstant(const OIIO::TypeDesc &, bool);
+    std::pair<llvm::Constant *, const void *> getLLVMConstant(const OIIO::TypeDesc &, const void *,
+                                                              bool);
 
-  //
-  llvm::Type                      *getLLVMType(const OIIO::TypeDesc&, bool);
-  llvm::Constant                  *getLLVMDefaultConstant(const OIIO::TypeDesc&, bool);
-  std::pair<llvm::Constant *, const void *> getLLVMConstant(const OIIO::TypeDesc&, const void *, bool);
+    bool        isTypePassedByReference(const OIIO::TypeDesc &) const;
+    llvm::Type *getLLVMTypeForArgument(const OIIO::TypeDesc &, bool);
 
-  bool                             isTypePassedByReference(const OIIO::TypeDesc&) const;
-  llvm::Type                      *getLLVMTypeForArgument(const OIIO::TypeDesc&, bool);
+    llvm::StructType *getLLVMStringType();
 
-  llvm::StructType                *getLLVMStringType();
+    llvm::StructType *getLLVMClosureType();
+    llvm::Constant *  getLLVMClosureDefaultConstant();
 
-  llvm::StructType                *getLLVMClosureType();
-  llvm::Constant                  *getLLVMClosureDefaultConstant();
+    llvm::PointerType *getLLVMClosurePointerType();
+    llvm::Constant *   getLLVMClosurePointerDefaultConstant();
 
-  llvm::PointerType               *getLLVMClosurePointerType();
-  llvm::Constant                  *getLLVMClosurePointerDefaultConstant();
+    llvm::StructType *getShaderGlobalsType();
 
-  llvm::StructType                *getShaderGlobalsType();
+    //
+    const OSL::ShadingSystem &getShadingSystem() const { return *d_shading_system.get(); }
+    OSL::ShadingSystem &      getShadingSystem() { return *d_shading_system.get(); }
 
-  //
-  const OSL::ShadingSystem&        getShadingSystem() const { return *d_shading_system.get(); }
-  OSL::ShadingSystem&              getShadingSystem()       { return *d_shading_system.get(); }
+    const OSL::ShadingContext *getShadingContext() const { return d_shading_context; }
+    OSL::ShadingContext *      getShadingContext() { return d_shading_context; }
 
-  const OSL::ShadingContext       *getShadingContext() const { return d_shading_context; }
-  OSL::ShadingContext             *getShadingContext()       { return d_shading_context; }
+    //
+    using ClosureMapType = llvm::DenseMap<unsigned, std::unique_ptr<Closure>>;
 
-  //
-  using ClosureMapType = llvm::DenseMap<unsigned, std::unique_ptr<Closure> >;
+    ClosureMapType &      closures() { return d_closures; }
+    const ClosureMapType &closures() const { return d_closures; }
 
-  ClosureMapType&                  closures()       { return d_closures; }
-  const ClosureMapType&            closures() const { return d_closures; }
+    const Closure *getClosure(unsigned) const;
+    const Closure *getClosure(llvm::StringRef) const;
 
-  const Closure                   *getClosure(unsigned) const;
-  const Closure                   *getClosure(llvm::StringRef) const;
+    //
+    unsigned bxdf_address_space() const { return d_bxdf_address_space; }
 
-  //
-  unsigned                         bxdf_address_space() const { return d_bxdf_address_space; }
+    std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef,
+                                                             std::size_t);
 
-  std::tuple<const BXDF *, unsigned, bool> getOrInsertBXDF(BXDF::EncodingView, BXDFAST::NodeRef, std::size_t);
+    llvm::Module *      bxdf_module() { return d_bxdf_module.get(); }
+    const llvm::Module *bxdf_module() const { return d_bxdf_module.get(); }
 
-  llvm::Module                    *bxdf_module()       { return d_bxdf_module.get(); }
-  const llvm::Module              *bxdf_module() const { return d_bxdf_module.get(); }
+    UberBXDF *uber_bxdf() const { return d_uber_bxdf; }
 
-  UberBXDF                        *uber_bxdf() const   { return d_uber_bxdf; }
+    //
+    OSLErrorScope enterOSLErrorScope();
 
-  //
-  OSLErrorScope                    enterOSLErrorScope();
+    llvm::Expected<Builder> getBuilder();
+    void                    resetBuilder(BuilderImpl *);
 
-  llvm::Expected<Builder>          getBuilder();
-  void                             resetBuilder(BuilderImpl *);
+    //
+    llvm::Expected<Shader *> createShaderFromFile(llvm::StringRef);
 
-  //
-  llvm::Expected<Shader *>         createShaderFromFile(llvm::StringRef);
+    llvm::Expected<Shader *> getShaderFromShaderMaster(OSL::pvt::ShaderMaster::ref);
 
-  llvm::Expected<Shader *>         getShaderFromShaderMaster(OSL::pvt::ShaderMaster::ref);
+    //
+    using ShaderListType = LLOSLContext::ShaderListType;
 
-  //
-  using ShaderListType = LLOSLContext::ShaderListType;
+    static ShaderListType LLOSLContextImpl::*getSublistAccess(Shader *) {
+        return &LLOSLContextImpl::d_shaders;
+    }
 
-  static ShaderListType LLOSLContextImpl::*getSublistAccess(Shader *) {
-      return &LLOSLContextImpl::d_shaders;
-  }
+    void addShader(Shader *);
+    void removeShader(Shader *);
 
-  void                             addShader(Shader *);
-  void                             removeShader(Shader *);
+    //
+    using BXDFListType = LLOSLContext::BXDFListType;
 
-  //
-  using BXDFListType = LLOSLContext::BXDFListType;
+    static BXDFListType LLOSLContextImpl::*getSublistAccess(BXDF *) {
+        return &LLOSLContextImpl::d_bxdfs;
+    }
 
-  static BXDFListType LLOSLContextImpl::*getSublistAccess(BXDF *) {
-      return &LLOSLContextImpl::d_bxdfs;
-  }
+    void addBXDF(BXDF *);
+    void removeBXDF(BXDF *);
 
-  void                             addBXDF(BXDF *);
-  void                             removeBXDF(BXDF *);
+    //
+    using UberBXDFListType = LLOSLContext::UberBXDFListType;
 
-  //
-  using UberBXDFListType = LLOSLContext::UberBXDFListType;
+    static UberBXDFListType LLOSLContextImpl::*getSublistAccess(UberBXDF *) {
+        return &LLOSLContextImpl::d_uber_bxdfs;
+    }
 
-  static UberBXDFListType LLOSLContextImpl::*getSublistAccess(UberBXDF *) {
-      return &LLOSLContextImpl::d_uber_bxdfs;
-  }
-
-  void                             addUberBXDF(UberBXDF *);
-  void                             removeUberBXDF(UberBXDF *);
+    void addUberBXDF(UberBXDF *);
+    void removeUberBXDF(UberBXDF *);
 
 private:
+    void registerClosures();
 
-  void registerClosures();
+    // OSL::RendererServices overrides:
+    int supports(OSL::string_view) const override;
 
-  // OSL::RendererServices overrides:
-  int supports(OSL::string_view) const override;
+    OSLErrorHandler d_osl_error_handler;
 
-  OSLErrorHandler d_osl_error_handler;
+    llvm::LLVMContext &           d_llcontext;
+    std::unique_ptr<llvm::Module> d_bxdf_module;
 
-  llvm::LLVMContext& d_llcontext;
-  std::unique_ptr<llvm::Module> d_bxdf_module;
+    llvm::StructType *d_string_type         = nullptr;
+    llvm::StructType *d_closure_type        = nullptr;
+    llvm::StructType *d_shader_globals_type = nullptr;
 
-  llvm::StructType *d_string_type = nullptr;
-  llvm::StructType *d_closure_type = nullptr;
-  llvm::StructType *d_shader_globals_type = nullptr;
+    std::unique_ptr<OSL::ShadingSystem> d_shading_system;
+    OSL::ShadingContext *               d_shading_context;
 
-  std::unique_ptr<OSL::ShadingSystem> d_shading_system;
-  OSL::ShadingContext *d_shading_context;
+    ClosureMapType            d_closures;
+    llvm::StringMap<unsigned> d_closures_by_name;
 
-  ClosureMapType d_closures;
-  llvm::StringMap<unsigned> d_closures_by_name;
+    BuilderImpl *d_builder = nullptr;
 
-  BuilderImpl *d_builder = nullptr;
+    ShaderListType d_shaders;
 
-  ShaderListType d_shaders;
+    std::unordered_map<OSL::pvt::ShaderMaster::ref, Shader *> d_shader_masters;
 
-  std::unordered_map<OSL::pvt::ShaderMaster::ref, Shader *> d_shader_masters;
+    unsigned         d_bxdf_address_space = 0;
+    BXDFListType     d_bxdfs;
+    UberBXDFListType d_uber_bxdfs;
 
-  unsigned d_bxdf_address_space = 0;
-  BXDFListType d_bxdfs;
-  UberBXDFListType d_uber_bxdfs;
+    UberBXDF *d_uber_bxdf = nullptr;
 
-  UberBXDF *d_uber_bxdf = nullptr;
-
-  std::map<BXDF::Encoding, const BXDF *, std::less<> > d_bxdf_index;
+    std::map<BXDF::Encoding, const BXDF *, std::less<>> d_bxdf_index;
 };
 
-}
+} // namespace llosl
 
 #endif

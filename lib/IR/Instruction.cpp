@@ -8,7 +8,7 @@
 namespace llosl {
 
 Instruction::Instruction(Value::ValueKind kind, unsigned operand_count, ClosureBlock *block)
-: User(kind, operand_count) {
+    : User(kind, operand_count) {
     setParent(block);
 }
 
@@ -30,11 +30,10 @@ Instruction::setParent(ClosureBlock *block) {
 }
 
 // Reference
-Reference::Reference(const llvm::Value& ll_value, unsigned location, ClosureBlock *block)
-: Instruction(Value::ValueKind::Reference, 0, block)
-, d_ll_value(ll_value)
-, d_location(location) {
-}
+Reference::Reference(const llvm::Value &ll_value, unsigned location, ClosureBlock *block)
+    : Instruction(Value::ValueKind::Reference, 0, block)
+    , d_ll_value(ll_value)
+    , d_location(location) {}
 
 const llvm::Value *
 Reference::getLLValue() const {
@@ -47,10 +46,9 @@ Reference::dump() const {
 }
 
 // Null
-Null::Null(const llvm::Value& ll_value, ClosureBlock *block)
-: Instruction(Value::ValueKind::Null, 0, block)
-, d_ll_value(ll_value) {
-}
+Null::Null(const llvm::Value &ll_value, ClosureBlock *block)
+    : Instruction(Value::ValueKind::Null, 0, block)
+    , d_ll_value(ll_value) {}
 
 const llvm::Value *
 Null::getLLValue() const {
@@ -58,11 +56,10 @@ Null::getLLValue() const {
 }
 
 // Load
-Load::Load(const llvm::LoadInst& ll_instruction, unsigned location, ClosureBlock *block)
-: Instruction(Value::ValueKind::Load, 1, block)
-, d_ll_instruction(ll_instruction)
-, d_location(location) {
-}
+Load::Load(const llvm::LoadInst &ll_instruction, unsigned location, ClosureBlock *block)
+    : Instruction(Value::ValueKind::Load, 1, block)
+    , d_ll_instruction(ll_instruction)
+    , d_location(location) {}
 
 const llvm::Value *
 Load::getLLValue() const {
@@ -75,11 +72,12 @@ Load::dump() const {
 }
 
 // Store
-Store::Store(const llvm::StoreInst& ll_instruction, Value& rhs, unsigned location, ClosureBlock *block)
-: Instruction(Value::ValueKind::Store, 1, block)
-, d_ll_instruction(ll_instruction)
-, d_rhs(rhs)
-, d_location(location) {
+Store::Store(const llvm::StoreInst &ll_instruction, Value &rhs, unsigned location,
+             ClosureBlock *block)
+    : Instruction(Value::ValueKind::Store, 1, block)
+    , d_ll_instruction(ll_instruction)
+    , d_rhs(rhs)
+    , d_location(location) {
     setOperandValue(0, &d_rhs);
 }
 
@@ -96,10 +94,9 @@ Store::dump() const {
 }
 
 // AllocateComponent
-AllocateComponent::AllocateComponent(const llvm::CallInst& ll_instruction, ClosureBlock *block)
-: Instruction(Value::ValueKind::AllocateComponent, 0, block)
-, d_ll_instruction(ll_instruction) {
-}
+AllocateComponent::AllocateComponent(const llvm::CallInst &ll_instruction, ClosureBlock *block)
+    : Instruction(Value::ValueKind::AllocateComponent, 0, block)
+    , d_ll_instruction(ll_instruction) {}
 
 const llvm::Value *
 AllocateComponent::getLLValue() const {
@@ -117,10 +114,10 @@ AllocateComponent::getClosureSize() const {
 }
 
 // AllocateWeightedComponent
-AllocateWeightedComponent::AllocateWeightedComponent(const llvm::CallInst& ll_instruction, ClosureBlock *block)
-: Instruction(Value::ValueKind::AllocateWeightedComponent, 0, block)
-, d_ll_instruction(ll_instruction) {
-}
+AllocateWeightedComponent::AllocateWeightedComponent(const llvm::CallInst &ll_instruction,
+                                                     ClosureBlock *        block)
+    : Instruction(Value::ValueKind::AllocateWeightedComponent, 0, block)
+    , d_ll_instruction(ll_instruction) {}
 
 const llvm::Value *
 AllocateWeightedComponent::getLLValue() const {
@@ -138,12 +135,12 @@ AllocateWeightedComponent::getClosureSize() const {
 }
 
 // AddClosureClosure
-AddClosureClosure::AddClosureClosure(const llvm::CallInst& ll_instruction, unsigned lhs, unsigned rhs, ClosureBlock *block)
-: Instruction(Value::ValueKind::AddClosureClosure, 0, block)
-, d_ll_instruction(ll_instruction)
-, d_lhs(lhs)
-, d_rhs(rhs) {
-}
+AddClosureClosure::AddClosureClosure(const llvm::CallInst &ll_instruction, unsigned lhs,
+                                     unsigned rhs, ClosureBlock *block)
+    : Instruction(Value::ValueKind::AddClosureClosure, 0, block)
+    , d_ll_instruction(ll_instruction)
+    , d_lhs(lhs)
+    , d_rhs(rhs) {}
 
 const llvm::Value *
 AddClosureClosure::getLLValue() const {
@@ -151,11 +148,11 @@ AddClosureClosure::getLLValue() const {
 }
 
 // MulClosureColor
-MulClosureColor::MulClosureColor(const llvm::CallInst& ll_instruction, unsigned lhs, ClosureBlock *block)
-: Instruction(Value::ValueKind::MulClosureColor, 0, block)
-, d_ll_instruction(ll_instruction)
-, d_lhs(lhs) {
-}
+MulClosureColor::MulClosureColor(const llvm::CallInst &ll_instruction, unsigned lhs,
+                                 ClosureBlock *block)
+    : Instruction(Value::ValueKind::MulClosureColor, 0, block)
+    , d_ll_instruction(ll_instruction)
+    , d_lhs(lhs) {}
 
 const llvm::Value *
 MulClosureColor::getLLValue() const {
@@ -163,11 +160,11 @@ MulClosureColor::getLLValue() const {
 }
 
 // MulClosureFloat
-MulClosureFloat::MulClosureFloat(const llvm::CallInst& ll_instruction, unsigned lhs, ClosureBlock *block)
-: Instruction(Value::ValueKind::MulClosureFloat, 0, block)
-, d_ll_instruction(ll_instruction)
-, d_lhs(lhs) {
-}
+MulClosureFloat::MulClosureFloat(const llvm::CallInst &ll_instruction, unsigned lhs,
+                                 ClosureBlock *block)
+    : Instruction(Value::ValueKind::MulClosureFloat, 0, block)
+    , d_ll_instruction(ll_instruction)
+    , d_lhs(lhs) {}
 
 const llvm::Value *
 MulClosureFloat::getLLValue() const {
@@ -175,10 +172,10 @@ MulClosureFloat::getLLValue() const {
 }
 
 // Cast
-Cast::Cast(const llvm::CastInst& ll_instruction, Value& rhs, ClosureBlock *block)
-: Instruction(Value::ValueKind::Cast, 1, block)
-, d_ll_instruction(ll_instruction)
-, d_rhs(rhs) {
+Cast::Cast(const llvm::CastInst &ll_instruction, Value &rhs, ClosureBlock *block)
+    : Instruction(Value::ValueKind::Cast, 1, block)
+    , d_ll_instruction(ll_instruction)
+    , d_rhs(rhs) {
     setOperandValue(0, &d_rhs);
 }
 
@@ -195,9 +192,9 @@ Cast::dump() const {
 }
 
 // PHI
-PHI::PHI(const llvm::PHINode& ll_instruction, llvm::ArrayRef<Value *> operands, ClosureBlock *block)
-: Instruction(Value::ValueKind::PHI, operands.size(), block)
-, d_ll_instruction(ll_instruction) {
+PHI::PHI(const llvm::PHINode &ll_instruction, llvm::ArrayRef<Value *> operands, ClosureBlock *block)
+    : Instruction(Value::ValueKind::PHI, operands.size(), block)
+    , d_ll_instruction(ll_instruction) {
     for (size_t i = 0, n = operands.size(); i < n; ++i) {
         setOperandValue(i, operands[i]);
     }
@@ -209,10 +206,9 @@ PHI::getLLValue() const {
 }
 
 // Return
-Return::Return(llvm::ReturnInst& ll_instruction, ClosureBlock *block)
-: Instruction(Value::ValueKind::Return, 0, block)
-, d_ll_instruction(&ll_instruction) {
-}
+Return::Return(llvm::ReturnInst &ll_instruction, ClosureBlock *block)
+    : Instruction(Value::ValueKind::Return, 0, block)
+    , d_ll_instruction(&ll_instruction) {}
 
 const llvm::Value *
 Return::getLLValue() const {

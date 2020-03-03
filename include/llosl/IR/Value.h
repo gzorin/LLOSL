@@ -15,7 +15,6 @@ namespace llosl {
 
 class Value {
 public:
-
     enum class ValueKind {
         Instruction,
         Reference,
@@ -39,8 +38,8 @@ public:
         BlockMax
     };
 
-    Value(Value&) = delete;
-    Value(Value&&) = delete;
+    Value(Value &)  = delete;
+    Value(Value &&) = delete;
     virtual ~Value();
 
     ValueKind getKind() const { return d_kind; }
@@ -50,12 +49,10 @@ public:
     virtual void dump() const;
 
 protected:
-
     Value(ValueKind);
 
 private:
-
-    ValueKind d_kind;
+    ValueKind               d_kind;
     llvm::simple_ilist<Use> d_uses;
 
     friend class Use;
@@ -63,18 +60,14 @@ private:
 
 class Output : public Value {
 public:
+    Output(const llvm::Value &);
 
-    Output(const llvm::Value&);
-
-    static bool classof(const Value* value) {
-        return value->getKind() == Value::ValueKind::Output;
-    }
+    static bool classof(const Value *value) { return value->getKind() == Value::ValueKind::Output; }
 
     const llvm::Value *getLLValue() const override;
 
 protected:
-
-    const llvm::Value& d_ll_value;
+    const llvm::Value &d_ll_value;
 };
 
 } // End namespace llosl

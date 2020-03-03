@@ -12,7 +12,8 @@ namespace llosl {
 
 class PathInfo;
 
-llvm::Function *InstrumentFunctionForPathId(llvm::Function&, const PathInfo&, llvm::StringRef = "");
+llvm::Function *InstrumentFunctionForPathId(llvm::Function &, const PathInfo &,
+                                            llvm::StringRef = "");
 
 } // End namespace llosl
 

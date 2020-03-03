@@ -3,8 +3,8 @@
 namespace llosl {
 
 User::User(Value::ValueKind kind, unsigned operand_count)
-: Value(kind)
-, d_operand_count(operand_count) {
+    : Value(kind)
+    , d_operand_count(operand_count) {
     if (d_operand_count > 0) {
         d_operands.reset(new Use[d_operand_count]);
     }

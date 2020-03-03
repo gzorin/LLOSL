@@ -12,15 +12,14 @@
 
 namespace llvm {
 
-void initializePathInfoPassPass(PassRegistry&);
+void initializePathInfoPassPass(PassRegistry &);
 
 } // End namespace llvm
 
 namespace llosl {
 
 PathInfo::PathInfo(std::shared_ptr<ClosureFunction> ir)
-: d_ir(ir) {
-}
+    : d_ir(ir) {}
 
 llvm::Optional<const PathInfo::BlockInfo *>
 PathInfo::getInfoForBlock(const Block *block) const {
@@ -60,7 +59,7 @@ PathInfo::getEdgeIDForBlocks(const Block *block, const Block *succ) const {
     }
 
     auto edge_id_map = *edge_ids;
-    auto it = edge_id_map->find(succ);
+    auto it          = edge_id_map->find(succ);
     if (it == edge_id_map->end()) {
         return llvm::Optional<unsigned>();
     }
@@ -70,33 +69,36 @@ PathInfo::getEdgeIDForBlocks(const Block *block, const Block *succ) const {
 
 void
 PathInfo::insertLeaf(const Block *block) {
-    auto& block_info = d_block_info[block];
+    auto &block_info      = d_block_info[block];
     block_info.path_count = 1;
 }
 
 void
 PathInfo::insertEdge(const Block *block, const Block *succ) {
-    auto& block_info = d_block_info[block];
+    auto &block_info = d_block_info[block];
 
     auto jt = d_block_info.find(succ);
     assert(jt != d_block_info.end());
-    auto& succ_info = jt->second;
+    auto &succ_info = jt->second;
 
     block_info.edge_id[succ] = block_info.path_count;
     block_info.path_count += succ_info.path_count;
 }
 
-PathInfoPass::PathInfoPass() : FunctionPass(ID) {
+PathInfoPass::PathInfoPass()
+    : FunctionPass(ID) {
     llvm::initializePathInfoPassPass(*llvm::PassRegistry::getPassRegistry());
 }
 
 char PathInfoPass::ID = 0;
 
-llvm::FunctionPass *createPathInfoPass() {
+llvm::FunctionPass *
+createPathInfoPass() {
     return new PathInfoPass();
 }
 
-bool PathInfoPass::runOnFunction(llvm::Function &F) {
+bool
+PathInfoPass::runOnFunction(llvm::Function &F) {
     auto function = getAnalysis<ClosureIRPass>().getIR();
 
     auto path_info = std::make_unique<PathInfo>(function);
@@ -106,46 +108,41 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
 
     struct Frame {
         const Block *block = nullptr;
-        bool back = false;
+        bool         back  = false;
     };
 
     std::stack<Frame> stack;
 
-    enum class Color {
-        White, Grey, Black
-    };
+    enum class Color { White, Grey, Black };
 
     llvm::DenseMap<const Block *, Color> color;
 
-    std::for_each(
-        function->blocks_begin(), function->blocks_end(),
-        [&stack, &color](const auto& block) -> void {
-            color[&block] = Color::White;
+    std::for_each(function->blocks_begin(), function->blocks_end(),
+                  [&stack, &color](const auto &block) -> void {
+                      color[&block] = Color::White;
 
-            if (block.preds_begin() == block.preds_end()) {
-                stack.push({ &block, false });
-            }
-        });
+                      if (block.preds_begin() == block.preds_end()) {
+                          stack.push({&block, false});
+                      }
+                  });
 
     while (!stack.empty()) {
-        auto block    = stack.top().block;
-        auto back     = stack.top().back;
+        auto block = stack.top().block;
+        auto back  = stack.top().back;
         stack.pop();
 
         if (!back && color[block] == Color::White) {
             color[block] = Color::Grey;
 
-            stack.push({ block, true });
+            stack.push({block, true});
 
-            std::for_each(
-                block->succs_begin(), block->succs_end(),
-                [&stack, &color](auto& tmp) {
-                    auto succ = tmp.first;
+            std::for_each(block->succs_begin(), block->succs_end(), [&stack, &color](auto &tmp) {
+                auto succ = tmp.first;
 
-                    if (color[succ] == Color::White) {
-                        stack.push({ succ, false });
-                    }
-                });
+                if (color[succ] == Color::White) {
+                    stack.push({succ, false});
+                }
+            });
         }
         else if (back) {
             color[block] = Color::Black;
@@ -154,24 +151,21 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
     }
 
     // Populate PathInfo:
-    std::for_each(
-        blocks.begin(), blocks.end(),
-        [&path_info](auto block) -> void {
-            // Leaf block:
-            if (block->succs_begin() == block->succs_end()) {
-                path_info->insertLeaf(block);
-                return;
-            }
+    std::for_each(blocks.begin(), blocks.end(), [&path_info](auto block) -> void {
+        // Leaf block:
+        if (block->succs_begin() == block->succs_end()) {
+            path_info->insertLeaf(block);
+            return;
+        }
 
-            // Inner block:
-            std::for_each(
-                block->succs_begin(), block->succs_end(),
-                [&path_info, block](auto& tmp) -> void {
-                    auto succ = tmp.first;
+        // Inner block:
+        std::for_each(block->succs_begin(), block->succs_end(),
+                      [&path_info, block](auto &tmp) -> void {
+                          auto succ = tmp.first;
 
-                    path_info->insertEdge(block, succ);
-                });
-        });
+                          path_info->insertEdge(block, succ);
+                      });
+    });
 
     path_info->d_block_list = std::move(blocks);
     std::reverse(path_info->d_block_list.begin(), path_info->d_block_list.end());
@@ -181,7 +175,8 @@ bool PathInfoPass::runOnFunction(llvm::Function &F) {
     return true;
 }
 
-void PathInfoPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
+void
+PathInfoPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.setPreservesAll();
     AU.addRequired<ClosureIRPass>();
 }
@@ -191,8 +186,6 @@ void PathInfoPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
 using llosl::PathInfoPass;
 using namespace llvm;
 
-INITIALIZE_PASS_BEGIN(PathInfoPass, "llosl-path-info",
-                      "PathInfo", false, false)
+INITIALIZE_PASS_BEGIN(PathInfoPass, "llosl-path-info", "PathInfo", false, false)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
-INITIALIZE_PASS_END(PathInfoPass, "llosl-path-info",
-                    "PathInfo", false, false)
+INITIALIZE_PASS_END(PathInfoPass, "llosl-path-info", "PathInfo", false, false)

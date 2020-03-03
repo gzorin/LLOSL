@@ -15,53 +15,45 @@ class Shader;
 
 class Builder {
 public:
+    class Error : public llvm::ErrorInfo<Error> {
+    public:
+        static char ID;
 
-  class Error : public llvm::ErrorInfo<Error> {
-  public:
+        enum class Code { InvalidContext = 1, InvalidError = 2 };
 
-      static char ID;
+        Error(Code);
 
-      enum class Code {
-	  InvalidContext = 1,
-	  InvalidError   = 2
-      };
+        void log(llvm::raw_ostream &) const override;
 
-      Error(Code);
+        std::error_code convertToErrorCode() const override;
 
-      void log(llvm::raw_ostream&) const override;
+    private:
+        Code d_code;
+    };
 
-      std::error_code convertToErrorCode() const override;
+    class OSLError : public llvm::ErrorInfo<OSLError, Error> {};
 
-  private:
+    Builder()                = delete;
+    Builder(const Builder &) = delete;
+    Builder(Builder &&);
+    ~Builder();
 
-      Code d_code;
-  };
+    Builder &operator=(const Builder &) = delete;
+    Builder &operator                   =(Builder &&);
 
-  class OSLError : public llvm::ErrorInfo<OSLError, Error> {
-  };
+    llvm::Error BeginShaderGroup(llvm::StringRef, llvm::StringRef);
+    llvm::Error EndShaderGroup();
 
-  Builder() = delete;
-  Builder(const Builder&) = delete;
-  Builder(Builder&&);
-  ~Builder();
+    llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
 
-  Builder& operator=(const Builder&) = delete;
-  Builder& operator=(Builder&&);
-
-  llvm::Error BeginShaderGroup(llvm::StringRef, llvm::StringRef);
-  llvm::Error EndShaderGroup();
-
-  llvm::Error AddNode(llvm::StringRef, llvm::StringRef, llvm::StringRef);
-
-  llvm::Expected<Shader *> Finalize();
+    llvm::Expected<Shader *> Finalize();
 
 private:
+    friend class LLOSLContextImpl;
 
-  friend class LLOSLContextImpl;
+    Builder(LLOSLContextImpl &context);
 
-  Builder(LLOSLContextImpl& context);
-
-  std::unique_ptr<BuilderImpl> d_impl;
+    std::unique_ptr<BuilderImpl> d_impl;
 };
 
 } // End namespace llosl

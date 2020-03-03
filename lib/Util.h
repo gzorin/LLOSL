@@ -8,12 +8,14 @@
 
 namespace LLOSLUtil {
 
-inline OIIO::string_view ConvertStringRef(llvm::StringRef string_ref) {
-  return OIIO::string_view(string_ref.data(), string_ref.size());
+inline OIIO::string_view
+ConvertStringRef(llvm::StringRef string_ref) {
+    return OIIO::string_view(string_ref.data(), string_ref.size());
 }
 
-inline llvm::StringRef ConvertStringRef(OIIO::string_view string_view) {
-  return llvm::StringRef(string_view.data(), string_view.size());
+inline llvm::StringRef
+ConvertStringRef(OIIO::string_view string_view) {
+    return llvm::StringRef(string_view.data(), string_view.size());
 }
 
 } // End namespace LLOSLUtil

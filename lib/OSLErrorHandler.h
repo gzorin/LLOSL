@@ -14,44 +14,41 @@ class OSLErrorHandler;
 
 class OSLErrorScope {
 public:
-    OSLErrorScope(OSLErrorScope&&);
+    OSLErrorScope(OSLErrorScope &&);
     ~OSLErrorScope();
-    
-    OSLErrorScope() = delete;
-    OSLErrorScope(const OSLErrorScope&) = delete;
 
-    OSLErrorScope& operator=(const OSLErrorScope&) = delete;
-    OSLErrorScope& operator=(OSLErrorScope&&);
+    OSLErrorScope()                      = delete;
+    OSLErrorScope(const OSLErrorScope &) = delete;
+
+    OSLErrorScope &operator=(const OSLErrorScope &) = delete;
+    OSLErrorScope &operator                         =(OSLErrorScope &&);
 
     llvm::Error takeError();
-    
+
 private:
-    
     friend class OSLErrorHandler;
-    
+
     OSLErrorScope(OSLErrorHandler *);
-    
+
     OSLErrorHandler *d_context = nullptr;
-    bool d_checked = false;
-    int d_code = 0;
-    std::string d_message;
+    bool             d_checked = false;
+    int              d_code    = 0;
+    std::string      d_message;
 };
 
 class OSLErrorHandler : public OSL::ErrorHandler {
-public:    
-
+public:
     OSLErrorScope enter();
 
     // OSL::ErrorHandler overrides:
-    void operator()(int, const std::string&);
+    void operator()(int, const std::string &);
 
 private:
-
     friend class OSLErrorScope;
 
     std::stack<OSLErrorScope *> d_scopes;
 };
 
-} // End nmespace llosl
+} // namespace llosl
 
 #endif

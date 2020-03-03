@@ -12,20 +12,19 @@ class LLOSLContextImpl;
 
 class BuilderImpl {
 public:
-
     using Error = Builder::Error;
 
-    BuilderImpl(LLOSLContextImpl&);
+    BuilderImpl(LLOSLContextImpl &);
     ~BuilderImpl();
 
-    BuilderImpl() = delete;
-    BuilderImpl(const BuilderImpl&) = delete;
-    BuilderImpl(BuilderImpl&&) = delete;
+    BuilderImpl()                    = delete;
+    BuilderImpl(const BuilderImpl &) = delete;
+    BuilderImpl(BuilderImpl &&)      = delete;
 
-    const LLOSLContextImpl& context() const { return *d_context; }
-    LLOSLContextImpl&       context()       { return *d_context; }
+    const LLOSLContextImpl &context() const { return *d_context; }
+    LLOSLContextImpl &      context() { return *d_context; }
 
-    OSL::ShaderGroupRef     shader_group()  { return d_shader_group; }
+    OSL::ShaderGroupRef shader_group() { return d_shader_group; }
 
     llvm::Error BeginShaderGroup(llvm::StringRef, llvm::StringRef);
     llvm::Error EndShaderGroup();
@@ -35,12 +34,9 @@ public:
     llvm::Expected<Shader *> Finalize();
 
 private:
+    enum class State { kValid, kInvalidContext, kInvalidError };
 
-    enum class State {
-	kValid, kInvalidContext, kInvalidError
-    };
-
-    State d_state = State::kValid;
+    State             d_state = State::kValid;
     LLOSLContextImpl *d_context;
 
     OSL::ShaderGroupRef d_shader_group;
